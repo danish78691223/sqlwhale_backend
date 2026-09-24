@@ -8,6 +8,7 @@ export function getAllTables(): string[] {
       FROM sqlite_master
       WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
+      AND name != 'system_metadata'
       ORDER BY name
     `)
     .all() as { name: string }[];
@@ -43,15 +44,37 @@ export function getTableInfo(tableName: string): TableInfo {
     dflt_value: unknown;
   }>;
 
+  const foreignKeys = db
+    .prepare(`PRAGMA foreign_key_list(${escapeIdentifier(tableName)})`)
+    .all() as Array<{
+    table: string;
+    from: string;
+    to: string;
+  }>;
+
+  const foreignKeyByColumn = new Map(
+    foreignKeys.map((foreignKey) => [
+      foreignKey.from,
+      foreignKey,
+    ])
+  );
+
   return {
     name: tableName,
-    columns: columns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      notNull: Boolean(column.notnull),
-      primaryKey: Boolean(column.pk),
-      defaultValue: column.dflt_value,
-    })),
+    columns: columns.map((column) => {
+      const foreignKey = foreignKeyByColumn.get(column.name);
+
+      return {
+        name: column.name,
+        type: column.type,
+        notNull: Boolean(column.notnull),
+        primaryKey: Boolean(column.pk),
+        defaultValue: column.dflt_value,
+        foreignKey: Boolean(foreignKey),
+        referencesTable: foreignKey?.table,
+        referencesColumn: foreignKey?.to,
+      };
+    }),
   };
 }
 
