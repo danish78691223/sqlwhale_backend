@@ -4,6 +4,9 @@ export interface TableColumn {
   notNull?: boolean;
   primaryKey?: boolean;
   defaultValue?: unknown;
+  foreignKey?: boolean;
+  referencesTable?: string;
+  referencesColumn?: string;
 }
 
 export interface TableInfo {
