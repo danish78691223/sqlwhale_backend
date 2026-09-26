@@ -8,16 +8,18 @@ export function executeSelect(query: string): ExecutionResult {
   const normalizedQuery = query.trim().replace(/;\s*$/, "");
 
   const tableNames = extractTableNames(normalizedQuery);
-
   const steps: ExecutionStep[] = [];
 
   for (const tableName of tableNames) {
+    const columns = getTableColumns(tableName);
     const rows = getTableRows(tableName);
 
     steps.push({
       id: steps.length + 1,
       operation: "scan",
       sourceTable: tableName,
+      inputColumns: columns,
+      outputColumns: columns,
       inputRows: rows,
       outputRows: rows,
       explanation: `Read ${rows.length} row(s) from the '${tableName}' table.`,
@@ -25,20 +27,49 @@ export function executeSelect(query: string): ExecutionResult {
   }
 
   const statement = db.prepare(normalizedQuery);
-
   const rows = statement.all() as Record<string, unknown>[];
-
   const columns = getResultColumns(rows, normalizedQuery);
-
-  const outputRows = rows.map((row) => columns.map((column) => row[column]));
+  const outputRows = rows.map((row) =>
+    columns.map((column) => row[column])
+  );
 
   const whereCondition = extractWhereCondition(normalizedQuery);
 
-  if (whereCondition) {
+  if (whereCondition && tableNames.length === 1) {
+    const tableName = tableNames[0];
+    const sourceColumns = getTableColumns(tableName);
+    const sourceRows = getTableRows(tableName);
+    const matchingIndexes = getMatchingRowIndexes(
+      tableName,
+      whereCondition,
+      sourceRows,
+      sourceColumns
+    );
+
+    const filteredIndexes = sourceRows
+      .map((_, index) => index)
+      .filter((index) => !matchingIndexes.includes(index));
+
+    steps.push({
+      id: steps.length + 1,
+      operation: "filter",
+      sourceTable: tableName,
+      condition: whereCondition,
+      inputColumns: sourceColumns,
+      inputRows: sourceRows,
+      outputColumns: sourceColumns,
+      outputRows: matchingIndexes.map((index) => sourceRows[index]),
+      matchedRows: matchingIndexes,
+      filteredRows: filteredIndexes,
+      highlightedRows: matchingIndexes,
+      explanation: `Keep rows where ${whereCondition}.`,
+    });
+  } else if (whereCondition) {
     steps.push({
       id: steps.length + 1,
       operation: "filter",
       condition: whereCondition,
+      outputColumns: columns,
       outputRows,
       explanation: `Applied the WHERE condition: ${whereCondition}.`,
     });
@@ -50,11 +81,13 @@ export function executeSelect(query: string): ExecutionResult {
     id: steps.length + 1,
     operation: "select",
     columns: selectColumns,
+    inputColumns: columns,
+    outputColumns: columns,
     outputRows,
     explanation:
       selectColumns.length === 1 && selectColumns[0] === "*"
-        ? "Selected all columns from the query result."
-        : `Selected the requested columns: ${selectColumns.join(", ")}.`,
+        ? "Keep all columns from the filtered rows."
+        : `Keep the selected columns: ${selectColumns.join(", ")}.`,
   });
 
   const orderBy = extractOrderBy(normalizedQuery);
@@ -98,6 +131,64 @@ function getTableRows(tableName: string): unknown[][] {
     .all() as Record<string, unknown>[];
 
   return rows.map((row) => Object.values(row));
+}
+
+function getTableColumns(tableName: string): string[] {
+  const rows = db
+    .prepare(`PRAGMA table_info("${tableName}")`)
+    .all() as Array<{ name: string }>;
+
+  return rows.map((row) => row.name);
+}
+
+function getMatchingRowIndexes(
+  tableName: string,
+  condition: string,
+  sourceRows: unknown[][],
+  sourceColumns: string[]
+): number[] {
+  try {
+    const matched = db
+      .prepare(
+        `SELECT rowid FROM "${tableName}" WHERE ${condition}`
+      )
+      .all() as Array<{ rowid: number }>;
+
+    const rowIds = new Set(matched.map((row) => row.rowid));
+    const rowsWithIds = db
+      .prepare(`SELECT rowid FROM "${tableName}"`)
+      .all() as Array<{ rowid: number }>;
+
+    return rowsWithIds
+      .map((row, index) => ({ rowId: row.rowid, index }))
+      .filter((item) => rowIds.has(item.rowId))
+      .map((item) => item.index);
+  } catch {
+    // Some SQLite tables do not expose rowid. Fall back to a value comparison.
+    try {
+      const matchedRows = db
+        .prepare(`SELECT * FROM "${tableName}" WHERE ${condition}`)
+        .all() as Record<string, unknown>[];
+      const matchedValues = matchedRows.map((row) =>
+        sourceColumns.map((column) => row[column])
+      );
+
+      return sourceRows.reduce<number[]>((indexes, row, index) => {
+        if (
+          matchedValues.some(
+            (matchedRow) =>
+              JSON.stringify(matchedRow) === JSON.stringify(row)
+          )
+        ) {
+          indexes.push(index);
+        }
+
+        return indexes;
+      }, []);
+    } catch {
+      return [];
+    }
+  }
 }
 
 function extractTableNames(query: string): string[] {
