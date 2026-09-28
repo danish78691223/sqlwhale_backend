@@ -55,5 +55,8 @@ export function createLocalSession(res: Response, localUserId: string) {
 export function clearLocalSession(req: Request, res: Response) {
   const token = readCookie(req);
   if (token) db.prepare("DELETE FROM local_auth_sessions WHERE session_hash = ?").run(hash(token));
-  res.setHeader("Set-Cookie", `${LOCAL_SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly`);
+  const existing = res.getHeader("Set-Cookie");
+  const values = Array.isArray(existing) ? existing.map(String) : existing ? [String(existing)] : [];
+  values.push(`${LOCAL_SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly`);
+  res.setHeader("Set-Cookie", values);
 }
