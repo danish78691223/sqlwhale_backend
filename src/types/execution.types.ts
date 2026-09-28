@@ -23,6 +23,9 @@ export interface ExecutionStep {
   columns?: string[];
   inputColumns?: string[];
   outputColumns?: string[];
+  matchedRows?: number[];
+  filteredRows?: number[];
+  highlightedRows?: number[];
   explanation: string;
   metadata?: Record<string, unknown>;
 }
