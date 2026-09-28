@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import db from "../config/database";
 import {
   beginWebXWhaleLogin,
   completeWebXWhaleLogin,
@@ -56,6 +57,42 @@ router.get("/me", (req: Request, res: Response) => {
   }
 
   res.json({ success: true, authenticated: true, user });
+});
+
+router.get("/query-history", (req: Request, res: Response) => {
+  const user = getCurrentUser(req);
+
+  if (!user) {
+    res.status(401).json({
+      success: false,
+      authenticated: false,
+      error: "Authentication required.",
+    });
+    return;
+  }
+
+  const rawLimit = Number(req.query.limit);
+  const limit = Number.isInteger(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 100)
+    : 50;
+
+  const rows = db.prepare(`
+    SELECT
+      id,
+      query,
+      command,
+      status,
+      execution_time_ms AS executionTimeMs,
+      rows_returned AS rowsReturned,
+      error_message AS errorMessage,
+      created_at AS createdAt
+    FROM query_history
+    WHERE webxwhale_user_id = ?
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(user.webxwhaleUserId, limit);
+
+  res.json({ success: true, history: rows });
 });
 
 router.post("/logout", (req: Request, res: Response) => {
