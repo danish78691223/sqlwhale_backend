@@ -95,6 +95,67 @@ router.get("/query-history", (req: Request, res: Response) => {
   res.json({ success: true, history: rows });
 });
 
+
+router.get("/learning-progress", (req: Request, res: Response) => {
+  const user = getCurrentUser(req);
+
+  if (!user) {
+    res.status(401).json({
+      success: false,
+      authenticated: false,
+      error: "Authentication required.",
+    });
+    return;
+  }
+
+  const progress = db.prepare(`
+    SELECT section_id AS sectionId, completed_at AS completedAt
+    FROM learning_progress
+    WHERE webxwhale_user_id = ?
+    ORDER BY completed_at DESC
+  `).all(user.webxwhaleUserId);
+
+  res.json({ success: true, progress });
+});
+
+router.post("/learning-progress/:sectionId", (req: Request, res: Response) => {
+  const user = getCurrentUser(req);
+  const sectionId = typeof req.params.sectionId === "string"
+    ? req.params.sectionId.trim()
+    : "";
+
+  if (!user) {
+    res.status(401).json({
+      success: false,
+      authenticated: false,
+      error: "Authentication required.",
+    });
+    return;
+  }
+
+  if (!sectionId || !/^[a-z0-9-]+$/.test(sectionId)) {
+    res.status(400).json({
+      success: false,
+      error: "Invalid learning section.",
+    });
+    return;
+  }
+
+  db.prepare(`
+    INSERT OR IGNORE INTO learning_progress
+      (webxwhale_user_id, section_id)
+    VALUES (?, ?)
+  `).run(user.webxwhaleUserId, sectionId);
+
+  const progress = db.prepare(`
+    SELECT section_id AS sectionId, completed_at AS completedAt
+    FROM learning_progress
+    WHERE webxwhale_user_id = ? AND section_id = ?
+  `).get(user.webxwhaleUserId, sectionId);
+
+  res.status(200).json({ success: true, progress });
+});
+
 router.post("/logout", (req: Request, res: Response) => {
   logoutWebXWhale(req, res);
   res.json({ success: true });
