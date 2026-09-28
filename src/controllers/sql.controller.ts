@@ -39,6 +39,15 @@ export function executeSQLController(
     }
 
     const currentUser = getCurrentUser(req);
+
+    if (currentUser) {
+      db.prepare(`
+        INSERT OR IGNORE INTO learning_activity
+          (webxwhale_user_id, activity_date)
+        VALUES (?, date('now'))
+      `).run(currentUser.webxwhaleUserId);
+    }
+
     const startedAt = Date.now();
     const sqlResult = runSQLQuery(query);
     const executionTimeMs = Date.now() - startedAt;
