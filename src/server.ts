@@ -13,6 +13,7 @@ import { seedDatabase } from "./database/seed";
 import sqlRoutes from "./routes/sql.routes";
 import tableRoutes from "./routes/table.routes";
 import lessonRoutes from "./routes/lesson.routes";
+import authRoutes from "./routes/auth.routes";
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ try {
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || "*",
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -102,6 +104,8 @@ app.use("/api/sql", sqlRoutes);
 app.use("/api/tables", tableRoutes);
 
 app.use("/api/lessons", lessonRoutes);
+
+app.use("/api/auth", authRoutes);
 
 /*
 |--------------------------------------------------------------------------
