@@ -21,6 +21,8 @@ export interface ExecutionStep {
   outputRows?: unknown[][];
   affectedRows?: unknown[][];
   columns?: string[];
+  inputColumns?: string[];
+  outputColumns?: string[];
   explanation: string;
   metadata?: Record<string, unknown>;
 }
