@@ -57,19 +57,21 @@ export function executeSQLController(
     }
 
     const startedAt = Date.now();
+    const historyTable = currentUser ? "query_history" : "local_query_history";
+    const historyUserId = currentUser?.webxwhaleUserId || localUser?.localUserId;
     const sqlResult = runSQLQuery(query);
     const executionTimeMs = Date.now() - startedAt;
 
     if (!sqlResult.success) {
       if (currentUser) {
         db.prepare(`
-          INSERT INTO query_history (
+          INSERT INTO ${historyTable} (
             webxwhale_user_id, query, command, status,
             execution_time_ms, rows_returned, error_message
           )
           VALUES (?, ?, ?, 'error', ?, 0, ?)
         `).run(
-          currentUser.webxwhaleUserId,
+          historyUserId,
           query.trim(),
           sqlResult.command || null,
           executionTimeMs,
@@ -94,7 +96,7 @@ export function executeSQLController(
 
     if (currentUser) {
       db.prepare(`
-        INSERT INTO query_history (
+        INSERT INTO ${historyTable} (
           webxwhale_user_id, query, command, status,
           execution_time_ms, rows_returned, error_message
         )
