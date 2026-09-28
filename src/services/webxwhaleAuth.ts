@@ -20,7 +20,7 @@ function cookieOptions(maxAge: number) {
     "Path=/",
     "HttpOnly",
     isProduction() ? "Secure" : "",
-    // Auth cookies are now delivered through the SQLWhale first-party proxy.\n    // Lax works across the OAuth top-level redirect and avoids third-party-cookie blocking.\n    "SameSite=Lax",
+    // Auth cookies are delivered through the SQLWhale first-party proxy.\n    // Lax works across the OAuth top-level redirect and avoids third-party-cookie blocking.\n    "SameSite=Lax",
   ].filter(Boolean).join("; ");
 }
 
