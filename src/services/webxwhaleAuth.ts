@@ -30,7 +30,7 @@ function clearCookieOptions() {
     "Path=/",
     "HttpOnly",
     isProduction() ? "Secure" : "",
-    isProduction() ? "SameSite=None" : "SameSite=Lax",
+    "SameSite=Lax",
   ].filter(Boolean).join("; ");
 }
 
