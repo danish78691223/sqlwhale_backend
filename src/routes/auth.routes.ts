@@ -7,6 +7,7 @@ import {
   getCurrentUser,
   logoutWebXWhale,
 } from "../services/webxwhaleAuth";
+import { getLocalUser, clearLocalSession } from "../services/localAuth";
 
 
 const LOCAL_SESSION_COOKIE = "sqlwhale_local_session";
@@ -180,52 +181,47 @@ router.post("/local/logout", (req: Request, res: Response) => {
 
 router.get("/me", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
+  const local = getLocalUser(req);
 
-  if (!user) {
+  if (!user && !local) {
     res.status(401).json({ success: false, authenticated: false });
     return;
   }
 
-  res.json({ success: true, authenticated: true, user });
+  res.json({
+    success: true,
+    authenticated: true,
+    user: user || local,
+    accountType: user ? "webxwhale" : "sqlwhale",
+  });
 });
 
 router.get("/query-history", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
+  const local = getLocalUser(req);
 
-  if (!user) {
-    res.status(401).json({
-      success: false,
-      authenticated: false,
-      error: "Authentication required.",
-    });
+  if (!user && !local) {
+    res.status(401).json({ success: false, authenticated: false, error: "Authentication required." });
     return;
   }
 
   const rawLimit = Number(req.query.limit);
-  const limit = Number.isInteger(rawLimit)
-    ? Math.min(Math.max(rawLimit, 1), 100)
-    : 50;
+  const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
 
-  const rows = db.prepare(`
-    SELECT
-      id,
-      query,
-      command,
-      status,
-      execution_time_ms AS executionTimeMs,
-      rows_returned AS rowsReturned,
-      error_message AS errorMessage,
-      created_at AS createdAt
-    FROM query_history
-    WHERE webxwhale_user_id = ?
-    ORDER BY id DESC
-    LIMIT ?
-  `).all(user.webxwhaleUserId, limit);
+  if (local) {
+    const history = db.prepare(
+      "SELECT id, query, command, status, execution_time_ms AS executionTimeMs, rows_returned AS rowsReturned, error_message AS errorMessage, created_at AS createdAt FROM local_query_history WHERE local_user_id = ? ORDER BY id DESC LIMIT ?"
+    ).all(local.localUserId, limit);
+    res.json({ success: true, history });
+    return;
+  }
 
-  res.json({ success: true, history: rows });
+  const history = db.prepare(
+    "SELECT id, query, command, status, execution_time_ms AS executionTimeMs, rows_returned AS rowsReturned, error_message AS errorMessage, created_at AS createdAt FROM query_history WHERE webxwhale_user_id = ? ORDER BY id DESC LIMIT ?"
+  ).all(user!.webxwhaleUserId, limit);
+
+  res.json({ success: true, history });
 });
-
-
 
 router.get("/learning-dashboard", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
@@ -374,6 +370,7 @@ router.post("/learning-progress/:sectionId", (req: Request, res: Response) => {
 
 router.post("/logout", (req: Request, res: Response) => {
   logoutWebXWhale(req, res);
+  clearLocalSession(req, res);
   res.json({ success: true });
 });
 
