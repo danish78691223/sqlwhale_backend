@@ -32,7 +32,7 @@ function readAuthCookie(req: Request, name: string): string | null {
 }
 
 function passwordHash(password: string): string {
-  return crypto.createHash("sha256").update(password, "utf8").digest("hex");
+  return crypto.scryptSync(password, "sqlwhale-local-auth", 64).toString("hex");
 }
 
 function localUser(req: Request) {
