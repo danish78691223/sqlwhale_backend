@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import db from "../config/database";
 import { getCurrentUser } from "../services/webxwhaleAuth";
+import { getLocalUser } from "../services/localAuth";
 
 import { runSQLQuery } from "../services/sql.service";
 
@@ -39,6 +40,7 @@ export function executeSQLController(
     }
 
     const currentUser = getCurrentUser(req);
+    const localUser = getLocalUser(req);
 
     if (currentUser) {
       db.prepare(`
@@ -46,6 +48,12 @@ export function executeSQLController(
           (webxwhale_user_id, activity_date)
         VALUES (?, date('now'))
       `).run(currentUser.webxwhaleUserId);
+    } else if (localUser) {
+      db.prepare(`
+        INSERT OR IGNORE INTO local_learning_activity
+          (local_user_id, activity_date)
+        VALUES (?, date('now'))
+      `).run(localUser.localUserId);
     }
 
     const startedAt = Date.now();
