@@ -19,6 +19,36 @@ export function initializeSchema(): void {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+
+    CREATE TABLE IF NOT EXISTS sqlwhale_local_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_user_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      current_plan TEXT NOT NULL DEFAULT 'Starter',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sqlwhale_local_users_email
+      ON sqlwhale_local_users(email);
+
+    CREATE TABLE IF NOT EXISTS local_auth_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_hash TEXT UNIQUE NOT NULL,
+      local_user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (local_user_id)
+        REFERENCES sqlwhale_local_users(local_user_id)
+        ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_local_auth_sessions_expires_at
+      ON local_auth_sessions(expires_at);
+
     CREATE TABLE IF NOT EXISTS auth_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_hash TEXT UNIQUE NOT NULL,
@@ -35,6 +65,46 @@ export function initializeSchema(): void {
 
     CREATE INDEX IF NOT EXISTS idx_webxwhale_users_email
       ON webxwhale_users(email);
+
+    CREATE TABLE IF NOT EXISTS local_query_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_user_id TEXT NOT NULL,
+      query TEXT NOT NULL,
+      command TEXT,
+      status TEXT NOT NULL CHECK (status IN ('success', 'error')),
+      execution_time_ms INTEGER NOT NULL DEFAULT 0,
+      rows_returned INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (local_user_id)
+        REFERENCES sqlwhale_local_users(local_user_id)
+        ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_local_query_history_user_created
+      ON local_query_history(local_user_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS local_learning_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_user_id TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(local_user_id, section_id),
+      FOREIGN KEY (local_user_id)
+        REFERENCES sqlwhale_local_users(local_user_id)
+        ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS local_learning_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_user_id TEXT NOT NULL,
+      activity_date TEXT NOT NULL,
+      UNIQUE(local_user_id, activity_date),
+      FOREIGN KEY (local_user_id)
+        REFERENCES sqlwhale_local_users(local_user_id)
+        ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS query_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       webxwhale_user_id TEXT NOT NULL,

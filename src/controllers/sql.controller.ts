@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import db from "../config/database";
 import { getCurrentUser } from "../services/webxwhaleAuth";
+import { getLocalUser } from "../services/localAuth";
 
 import { runSQLQuery } from "../services/sql.service";
 
@@ -39,6 +40,7 @@ export function executeSQLController(
     }
 
     const currentUser = getCurrentUser(req);
+    const localUser = getLocalUser(req);
 
     if (currentUser) {
       db.prepare(`
@@ -46,22 +48,31 @@ export function executeSQLController(
           (webxwhale_user_id, activity_date)
         VALUES (?, date('now'))
       `).run(currentUser.webxwhaleUserId);
+    } else if (localUser) {
+      db.prepare(`
+        INSERT OR IGNORE INTO local_learning_activity
+          (local_user_id, activity_date)
+        VALUES (?, date('now'))
+      `).run(localUser.localUserId);
     }
 
     const startedAt = Date.now();
+    const historyTable = currentUser ? "query_history" : "local_query_history";
+    const historyUserId = currentUser?.webxwhaleUserId || localUser?.localUserId;
+    const historyUserColumn = currentUser ? "webxwhale_user_id" : "local_user_id";
     const sqlResult = runSQLQuery(query);
     const executionTimeMs = Date.now() - startedAt;
 
     if (!sqlResult.success) {
-      if (currentUser) {
+      if (currentUser || localUser) {
         db.prepare(`
-          INSERT INTO query_history (
-            webxwhale_user_id, query, command, status,
+          INSERT INTO ${historyTable} (
+            ${historyUserColumn}, query, command, status,
             execution_time_ms, rows_returned, error_message
           )
           VALUES (?, ?, ?, 'error', ?, 0, ?)
         `).run(
-          currentUser.webxwhaleUserId,
+          historyUserId,
           query.trim(),
           sqlResult.command || null,
           executionTimeMs,
@@ -84,15 +95,15 @@ export function executeSQLController(
     const stepExplanations =
       generateStepExplanations(steps);
 
-    if (currentUser) {
+    if (currentUser || localUser) {
       db.prepare(`
-        INSERT INTO query_history (
-          webxwhale_user_id, query, command, status,
+        INSERT INTO ${historyTable} (
+          ${historyUserColumn}, query, command, status,
           execution_time_ms, rows_returned, error_message
         )
         VALUES (?, ?, ?, 'success', ?, ?, NULL)
       `).run(
-        currentUser.webxwhaleUserId,
+        historyUserId,
         query.trim(),
         sqlResult.command || null,
         executionTimeMs,
