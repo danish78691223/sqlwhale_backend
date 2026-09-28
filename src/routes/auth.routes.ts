@@ -1,11 +1,73 @@
 import { Router, type Request, type Response } from "express";
 import db from "../config/database";
+import crypto from "crypto";
 import {
   beginWebXWhaleLogin,
   completeWebXWhaleLogin,
   getCurrentUser,
   logoutWebXWhale,
 } from "../services/webxwhaleAuth";
+
+
+const LOCAL_SESSION_COOKIE = "sqlwhale_local_session";
+const LOCAL_SESSION_DAYS = 30;
+
+function localCookieOptions(maxAge: number): string {
+  return [
+    `Max-Age=${Math.floor(maxAge / 1000)}`,
+    "Path=/",
+    "HttpOnly",
+    process.env.NODE_ENV === "production" ? "Secure" : "",
+    process.env.NODE_ENV === "production" ? "SameSite=None" : "SameSite=Lax",
+  ].filter(Boolean).join("; ");
+}
+
+function readAuthCookie(req: Request, name: string): string | null {
+  const header = req.headers.cookie || "";
+  for (const part of header.split(";")) {
+    const [key, ...value] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(value.join("="));
+  }
+  return null;
+}
+
+function passwordHash(password: string): string {
+  return crypto.createHash("sha256").update(password, "utf8").digest("hex");
+}
+
+function localUser(req: Request) {
+  const token = readAuthCookie(req, LOCAL_SESSION_COOKIE);
+  if (!token) return null;
+
+  return db.prepare(`
+    SELECT id, local_user_id AS localUserId, name, email, role, current_plan AS currentPlan
+    FROM sqlwhale_local_users
+    WHERE local_user_id = (
+      SELECT local_user_id
+      FROM local_auth_sessions
+      WHERE session_hash = ? AND expires_at > CURRENT_TIMESTAMP
+      LIMIT 1
+    )
+  `).get(passwordHash(token)) as
+    | { id: number; localUserId: string; name: string; email: string; role: string; currentPlan: string }
+    | undefined || null;
+}
+
+function createLocalSession(res: Response, localUserId: string) {
+  const token = crypto.randomBytes(48).toString("base64url");
+  const hash = passwordHash(token);
+  const expiresAt = new Date(Date.now() + LOCAL_SESSION_DAYS * 86400000).toISOString();
+
+  db.prepare(`
+    INSERT INTO local_auth_sessions (session_hash, local_user_id, expires_at)
+    VALUES (?, ?, ?)
+  `).run(hash, localUserId, expiresAt);
+
+  res.setHeader("Set-Cookie",
+    `${LOCAL_SESSION_COOKIE}=${encodeURIComponent(token)}; ${localCookieOptions(LOCAL_SESSION_DAYS * 86400000)}`
+  );
+}
+
 
 const router = Router();
 
@@ -46,6 +108,74 @@ router.get("/webxwhale/callback", async (req: Request, res: Response) => {
       `${process.env.FRONTEND_URL || "http://localhost:3000"}/login?error=oauth_failed`
     );
   }
+});
+
+
+router.post("/local/signup", (req: Request, res: Response) => {
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+  if (name.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) {
+    res.status(400).json({ success: false, error: "Name, valid email and an 8+ character password are required." });
+    return;
+  }
+
+  const existing = db.prepare("SELECT id FROM sqlwhale_local_users WHERE email = ?").get(email);
+  if (existing) {
+    res.status(409).json({ success: false, error: "A SQLWhale account with this email already exists." });
+    return;
+  }
+
+  const localUserId = `sqlwhale_${crypto.randomBytes(16).toString("hex")}`;
+  db.prepare(`
+    INSERT INTO sqlwhale_local_users
+      (local_user_id, name, email, password_hash)
+    VALUES (?, ?, ?, ?)
+  `).run(localUserId, name, email, passwordHash(password));
+
+  createLocalSession(res, localUserId);
+  res.status(201).json({ success: true, accountType: "sqlwhale" });
+});
+
+router.post("/local/login", (req: Request, res: Response) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+  const account = db.prepare(`
+    SELECT local_user_id AS localUserId, name, email, role, current_plan AS currentPlan
+    FROM sqlwhale_local_users
+    WHERE email = ? AND password_hash = ?
+    LIMIT 1
+  `).get(email, passwordHash(password)) as
+    | { localUserId: string; name: string; email: string; role: string; currentPlan: string }
+    | undefined;
+
+  if (!account) {
+    res.status(401).json({ success: false, error: "Invalid SQLWhale email or password." });
+    return;
+  }
+
+  createLocalSession(res, account.localUserId);
+  res.json({ success: true, authenticated: true, user: account, accountType: "sqlwhale" });
+});
+
+router.get("/local/me", (req: Request, res: Response) => {
+  const user = localUser(req);
+  if (!user) {
+    res.status(401).json({ success: false, authenticated: false });
+    return;
+  }
+  res.json({ success: true, authenticated: true, user, accountType: "sqlwhale" });
+});
+
+router.post("/local/logout", (req: Request, res: Response) => {
+  const token = readAuthCookie(req, LOCAL_SESSION_COOKIE);
+  if (token) {
+    db.prepare("DELETE FROM local_auth_sessions WHERE session_hash = ?").run(passwordHash(token));
+  }
+  res.setHeader("Set-Cookie", `${LOCAL_SESSION_COOKIE}=; ${localCookieOptions(0)}`);
+  res.json({ success: true });
 });
 
 router.get("/me", (req: Request, res: Response) => {
