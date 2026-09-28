@@ -225,59 +225,42 @@ router.get("/query-history", (req: Request, res: Response) => {
 
 router.get("/learning-dashboard", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
+  const local = getLocalUser(req);
 
-  if (!user) {
-    res.status(401).json({
-      success: false,
-      authenticated: false,
-      error: "Authentication required.",
-    });
+  if (!user && !local) {
+    res.status(401).json({ success: false, authenticated: false, error: "Authentication required." });
     return;
   }
 
-  const stats = db.prepare(`
-    SELECT
-      COUNT(*) AS totalQueries,
+  const id = user?.webxwhaleUserId || local?.localUserId;
+  const queryTable = user ? "query_history" : "local_query_history";
+  const progressTable = user ? "learning_progress" : "local_learning_progress";
+  const activityTable = user ? "learning_activity" : "local_learning_activity";
+  const queryColumn = user ? "webxwhale_user_id" : "local_user_id";
+
+  const stats = db.prepare(
+    `SELECT COUNT(*) AS totalQueries,
       COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS successfulQueries,
       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS failedQueries,
       COALESCE(ROUND(AVG(execution_time_ms)), 0) AS averageExecutionTimeMs,
       COALESCE(SUM(CASE WHEN status = 'success' THEN rows_returned ELSE 0 END), 0) AS totalRowsReturned
-    FROM query_history
-    WHERE webxwhale_user_id = ?
-  `).get(user.webxwhaleUserId) as {
-    totalQueries: number;
-    successfulQueries: number;
-    failedQueries: number;
-    averageExecutionTimeMs: number;
-    totalRowsReturned: number;
-  };
+      FROM ${queryTable} WHERE ${queryColumn} = ?`
+  ).get(id) as any;
 
-  const progress = db.prepare(`
-    SELECT section_id AS sectionId, completed_at AS completedAt
-    FROM learning_progress
-    WHERE webxwhale_user_id = ?
-    ORDER BY completed_at DESC
-  `).all(user.webxwhaleUserId);
+  const progress = db.prepare(
+    `SELECT section_id AS sectionId, completed_at AS completedAt
+     FROM ${progressTable} WHERE ${queryColumn} = ? ORDER BY completed_at DESC`
+  ).all(id) as Array<{ sectionId: string; completedAt: string }>;
 
-  const lastActivity = db.prepare(`
-    SELECT MAX(activity_date) AS lastActivity
-    FROM learning_activity
-    WHERE webxwhale_user_id = ?
-  `).get(user.webxwhaleUserId) as { lastActivity: string | null };
+  const activities = db.prepare(
+    `SELECT activity_date AS activityDate FROM ${activityTable}
+     WHERE ${queryColumn} = ? ORDER BY activity_date DESC LIMIT 365`
+  ).all(id) as Array<{ activityDate: string }>;
 
-  const activityDates = db.prepare(`
-    SELECT activity_date AS activityDate
-    FROM learning_activity
-    WHERE webxwhale_user_id = ?
-    ORDER BY activity_date DESC
-    LIMIT 365
-  `).all(user.webxwhaleUserId) as Array<{ activityDate: string }>;
-
-  const activitySet = new Set(activityDates.map((item) => item.activityDate));
+  const activitySet = new Set(activities.map((item) => item.activityDate));
   let streak = 0;
   const cursor = new Date();
   cursor.setUTCHours(0, 0, 0, 0);
-
   while (activitySet.has(cursor.toISOString().slice(0, 10))) {
     streak += 1;
     cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -302,7 +285,7 @@ router.get("/learning-dashboard", (req: Request, res: Response) => {
       totalConcepts,
       progressPercent: Math.round((completedConcepts / totalConcepts) * 100),
       learningStreak: streak,
-      lastActivity: lastActivity.lastActivity,
+      lastActivity: activities[0]?.activityDate || null,
     },
     progress,
   });
