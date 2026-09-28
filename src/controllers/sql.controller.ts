@@ -1,4 +1,6 @@
 import { Request, Response } from "express";
+import db from "../config/database";
+import { getCurrentUser } from "../services/webxwhaleAuth";
 
 import { runSQLQuery } from "../services/sql.service";
 
@@ -36,11 +38,29 @@ export function executeSQLController(
       return;
     }
 
+    const currentUser = getCurrentUser(req);
+    const startedAt = Date.now();
     const sqlResult = runSQLQuery(query);
+    const executionTimeMs = Date.now() - startedAt;
 
     if (!sqlResult.success) {
-      res.status(400).json(sqlResult);
+      if (currentUser) {
+        db.prepare(`
+          INSERT INTO query_history (
+            webxwhale_user_id, query, command, status,
+            execution_time_ms, rows_returned, error_message
+          )
+          VALUES (?, ?, ?, 'error', ?, 0, ?)
+        `).run(
+          currentUser.webxwhaleUserId,
+          query.trim(),
+          sqlResult.command || null,
+          executionTimeMs,
+          sqlResult.error || "SQL query failed."
+        );
+      }
 
+      res.status(400).json(sqlResult);
       return;
     }
 
@@ -54,6 +74,22 @@ export function executeSQLController(
 
     const stepExplanations =
       generateStepExplanations(steps);
+
+    if (currentUser) {
+      db.prepare(`
+        INSERT INTO query_history (
+          webxwhale_user_id, query, command, status,
+          execution_time_ms, rows_returned, error_message
+        )
+        VALUES (?, ?, ?, 'success', ?, ?, NULL)
+      `).run(
+        currentUser.webxwhaleUserId,
+        query.trim(),
+        sqlResult.command || null,
+        executionTimeMs,
+        sqlResult.result?.rowCount ?? sqlResult.result?.rows?.length ?? 0
+      );
+    }
 
     res.status(200).json({
       success: true,
