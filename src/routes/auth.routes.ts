@@ -293,62 +293,59 @@ router.get("/learning-dashboard", (req: Request, res: Response) => {
 
 router.get("/learning-progress", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
+  const local = getLocalUser(req);
 
-  if (!user) {
-    res.status(401).json({
-      success: false,
-      authenticated: false,
-      error: "Authentication required.",
-    });
+  if (!user && !local) {
+    res.status(401).json({ success: false, authenticated: false, error: "Authentication required." });
     return;
   }
 
-  const progress = db.prepare(`
-    SELECT section_id AS sectionId, completed_at AS completedAt
-    FROM learning_progress
-    WHERE webxwhale_user_id = ?
-    ORDER BY completed_at DESC
-  `).all(user.webxwhaleUserId);
+  const table = user ? "learning_progress" : "local_learning_progress";
+  const column = user ? "webxwhale_user_id" : "local_user_id";
+  const id = user?.webxwhaleUserId || local?.localUserId;
+
+  const progress = db.prepare(
+    `SELECT section_id AS sectionId, completed_at AS completedAt
+     FROM ${table} WHERE ${column} = ? ORDER BY completed_at DESC`
+  ).all(id);
 
   res.json({ success: true, progress });
 });
 
 router.post("/learning-progress/:sectionId", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
-  const sectionId = typeof req.params.sectionId === "string"
-    ? req.params.sectionId.trim()
-    : "";
+  const local = getLocalUser(req);
+  const sectionId = typeof req.params.sectionId === "string" ? req.params.sectionId.trim() : "";
 
-  if (!user) {
-    res.status(401).json({
-      success: false,
-      authenticated: false,
-      error: "Authentication required.",
-    });
+  if (!user && !local) {
+    res.status(401).json({ success: false, authenticated: false, error: "Authentication required." });
     return;
   }
 
   if (!sectionId || !/^[a-z0-9-]+$/.test(sectionId)) {
-    res.status(400).json({
-      success: false,
-      error: "Invalid learning section.",
-    });
+    res.status(400).json({ success: false, error: "Invalid learning section." });
     return;
   }
 
-  db.prepare(`
-    INSERT OR IGNORE INTO learning_progress
-      (webxwhale_user_id, section_id)
-    VALUES (?, ?)
-  `).run(user.webxwhaleUserId, sectionId);
+  if (local) {
+    db.prepare(
+      "INSERT OR IGNORE INTO local_learning_progress (local_user_id, section_id) VALUES (?, ?)"
+    ).run(local.localUserId, sectionId);
+    const progress = db.prepare(
+      "SELECT section_id AS sectionId, completed_at AS completedAt FROM local_learning_progress WHERE local_user_id = ? AND section_id = ?"
+    ).get(local.localUserId, sectionId);
+    res.json({ success: true, progress });
+    return;
+  }
 
-  const progress = db.prepare(`
-    SELECT section_id AS sectionId, completed_at AS completedAt
-    FROM learning_progress
-    WHERE webxwhale_user_id = ? AND section_id = ?
-  `).get(user.webxwhaleUserId, sectionId);
+  db.prepare(
+    "INSERT OR IGNORE INTO learning_progress (webxwhale_user_id, section_id) VALUES (?, ?)"
+  ).run(user!.webxwhaleUserId, sectionId);
+  const progress = db.prepare(
+    "SELECT section_id AS sectionId, completed_at AS completedAt FROM learning_progress WHERE webxwhale_user_id = ? AND section_id = ?"
+  ).get(user!.webxwhaleUserId, sectionId);
 
-  res.status(200).json({ success: true, progress });
+  res.json({ success: true, progress });
 });
 
 router.post("/logout", (req: Request, res: Response) => {
