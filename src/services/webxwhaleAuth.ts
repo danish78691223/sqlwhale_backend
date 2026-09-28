@@ -125,7 +125,15 @@ async function exchangeCode(code: string, verifier: string) {
   const payload = await tokenResponse.json().catch(() => ({}));
 
   if (!tokenResponse.ok || !payload.access_token) {
-    throw new Error(payload.error_description || "WEBXWHALE token exchange failed.");
+    console.error("WEBXWHALE token exchange failed:", {
+      status: tokenResponse.status,
+      error: payload.error,
+      description: payload.error_description,
+    });
+    throw new Error(
+      payload.error_description ||
+        `WEBXWHALE token exchange failed (HTTP ${tokenResponse.status}).`
+    );
   }
 
   return payload.access_token as string;
