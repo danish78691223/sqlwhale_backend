@@ -102,6 +102,7 @@ export function beginWebXWhaleLogin(req: Request, res: Response): void {
   authorizeUrl.searchParams.set("client_id", CLIENT_ID);
   authorizeUrl.searchParams.set("redirect_uri", getRedirectUri());
   authorizeUrl.searchParams.set("state", state);
+  if (req.query.screen === "signup") authorizeUrl.searchParams.set("screen", "signup");
   authorizeUrl.searchParams.set("code_challenge", challenge);
   authorizeUrl.searchParams.set("code_challenge_method", "S256");
 
