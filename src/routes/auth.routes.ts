@@ -96,6 +96,80 @@ router.get("/query-history", (req: Request, res: Response) => {
 });
 
 
+
+router.get("/learning-dashboard", (req: Request, res: Response) => {
+  const user = getCurrentUser(req);
+
+  if (!user) {
+    res.status(401).json({
+      success: false,
+      authenticated: false,
+      error: "Authentication required.",
+    });
+    return;
+  }
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) AS totalQueries,
+      COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS successfulQueries,
+      COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS failedQueries,
+      COALESCE(ROUND(AVG(execution_time_ms)), 0) AS averageExecutionTimeMs,
+      COALESCE(SUM(CASE WHEN status = 'success' THEN rows_returned ELSE 0 END), 0) AS totalRowsReturned
+    FROM query_history
+    WHERE webxwhale_user_id = ?
+  `).get(user.webxwhaleUserId) as {
+    totalQueries: number;
+    successfulQueries: number;
+    failedQueries: number;
+    averageExecutionTimeMs: number;
+    totalRowsReturned: number;
+  };
+
+  const progress = db.prepare(`
+    SELECT section_id AS sectionId, completed_at AS completedAt
+    FROM learning_progress
+    WHERE webxwhale_user_id = ?
+    ORDER BY completed_at DESC
+  `).all(user.webxwhaleUserId);
+
+  const lastActivity = db.prepare(`
+    SELECT MAX(activity_at) AS lastActivity
+    FROM (
+      SELECT created_at AS activity_at
+      FROM query_history
+      WHERE webxwhale_user_id = ?
+      UNION ALL
+      SELECT completed_at AS activity_at
+      FROM learning_progress
+      WHERE webxwhale_user_id = ?
+    )
+  `).get(user.webxwhaleUserId, user.webxwhaleUserId) as { lastActivity: string | null };
+
+  const totalConcepts = 20;
+  const completedConcepts = progress.length;
+  const successRate = stats.totalQueries > 0
+    ? Math.round((stats.successfulQueries / stats.totalQueries) * 100)
+    : 0;
+
+  res.json({
+    success: true,
+    stats: {
+      totalQueries: stats.totalQueries,
+      successfulQueries: stats.successfulQueries,
+      failedQueries: stats.failedQueries,
+      successRate,
+      averageExecutionTimeMs: stats.averageExecutionTimeMs,
+      totalRowsReturned: stats.totalRowsReturned,
+      completedConcepts,
+      totalConcepts,
+      progressPercent: Math.round((completedConcepts / totalConcepts) * 100),
+      lastActivity: lastActivity.lastActivity,
+    },
+    progress,
+  });
+});
+
 router.get("/learning-progress", (req: Request, res: Response) => {
   const user = getCurrentUser(req);
 
