@@ -35,5 +35,23 @@ export function initializeSchema(): void {
 
     CREATE INDEX IF NOT EXISTS idx_webxwhale_users_email
       ON webxwhale_users(email);
+    CREATE TABLE IF NOT EXISTS query_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      webxwhale_user_id TEXT NOT NULL,
+      query TEXT NOT NULL,
+      command TEXT,
+      status TEXT NOT NULL CHECK (status IN ('success', 'error')),
+      execution_time_ms INTEGER NOT NULL DEFAULT 0,
+      rows_returned INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (webxwhale_user_id)
+        REFERENCES webxwhale_users(webxwhale_user_id)
+        ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_query_history_user_created
+      ON query_history(webxwhale_user_id, created_at DESC);
+
   `);
 }
