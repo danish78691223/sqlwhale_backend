@@ -134,17 +134,28 @@ router.get("/learning-dashboard", (req: Request, res: Response) => {
   `).all(user.webxwhaleUserId);
 
   const lastActivity = db.prepare(`
-    SELECT MAX(activity_at) AS lastActivity
-    FROM (
-      SELECT created_at AS activity_at
-      FROM query_history
-      WHERE webxwhale_user_id = ?
-      UNION ALL
-      SELECT completed_at AS activity_at
-      FROM learning_progress
-      WHERE webxwhale_user_id = ?
-    )
-  `).get(user.webxwhaleUserId, user.webxwhaleUserId) as { lastActivity: string | null };
+    SELECT MAX(activity_date) AS lastActivity
+    FROM learning_activity
+    WHERE webxwhale_user_id = ?
+  `).get(user.webxwhaleUserId) as { lastActivity: string | null };
+
+  const activityDates = db.prepare(`
+    SELECT activity_date AS activityDate
+    FROM learning_activity
+    WHERE webxwhale_user_id = ?
+    ORDER BY activity_date DESC
+    LIMIT 365
+  `).all(user.webxwhaleUserId) as Array<{ activityDate: string }>;
+
+  const activitySet = new Set(activityDates.map((item) => item.activityDate));
+  let streak = 0;
+  const cursor = new Date();
+  cursor.setUTCHours(0, 0, 0, 0);
+
+  while (activitySet.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
 
   const totalConcepts = 20;
   const completedConcepts = progress.length;
@@ -164,6 +175,7 @@ router.get("/learning-dashboard", (req: Request, res: Response) => {
       completedConcepts,
       totalConcepts,
       progressPercent: Math.round((completedConcepts / totalConcepts) * 100),
+      learningStreak: streak,
       lastActivity: lastActivity.lastActivity,
     },
     progress,
