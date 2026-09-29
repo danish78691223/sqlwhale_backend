@@ -8,9 +8,11 @@ export interface UpdateResult {
   affectedRows: number;
 }
 
+const IDENTIFIER = '(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))';
+
 export function executeUpdate(query: string): UpdateResult {
   const match = query.match(
-    /^UPDATE\s+([A-Za-z_][A-Za-z0-9_]*)\s+SET\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s+WHERE\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*;?$/is
+    new RegExp("^UPDATE\\s+" + IDENTIFIER + "\\s+SET\\s+" + IDENTIFIER + "\\s*=\\s*(.+?)\\s+WHERE\\s+" + IDENTIFIER + "\\s*=\\s*(.+?)\\s*;?$", "is")
   );
 
   if (!match) {
@@ -19,7 +21,11 @@ export function executeUpdate(query: string): UpdateResult {
     );
   }
 
-  const [, tableName, columnName, rawValue, whereColumn, rawWhereValue] = match;
+  const tableName = match[1] ?? match[2];
+  const columnName = match[3] ?? match[4];
+  const rawValue = match[5];
+  const whereColumn = match[6] ?? match[7];
+  const rawWhereValue = match[8];
 
   if (!tableExists(tableName)) {
     throw new Error(`Table '${tableName}' does not exist.`);
@@ -72,8 +78,8 @@ function parseValue(value: string): unknown {
     return trimmed.slice(1, -1).replace(/''/g, "'");
   }
 
-  if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
-  if (/^-?\d*\.\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
+  if (/^-?\\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  if (/^-?\\d*\\.\\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
 
   throw new Error("UPDATE values must be SQL literals such as text, numbers, NULL, TRUE or FALSE.");
 }
