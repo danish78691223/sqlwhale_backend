@@ -8,9 +8,11 @@ export interface DeleteResult {
   affectedRows: number;
 }
 
+const IDENTIFIER = '(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))';
+
 export function executeDelete(query: string): DeleteResult {
   const match = query.match(
-    /^DELETE\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)\s+WHERE\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*;?$/is
+    new RegExp("^DELETE\\s+FROM\\s+" + IDENTIFIER + "\\s+WHERE\\s+" + IDENTIFIER + "\\s*=\\s*(.+?)\\s*;?$", "is")
   );
 
   if (!match) {
@@ -19,7 +21,9 @@ export function executeDelete(query: string): DeleteResult {
     );
   }
 
-  const [, tableName, whereColumn, rawWhereValue] = match;
+  const tableName = match[1] ?? match[2];
+  const whereColumn = match[3] ?? match[4];
+  const rawWhereValue = match[5];
 
   if (!tableExists(tableName)) {
     throw new Error(`Table '${tableName}' does not exist.`);
@@ -62,8 +66,8 @@ function parseValue(value: string): unknown {
     (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
     (trimmed.startsWith('"') && trimmed.endsWith('"'))
   ) return trimmed.slice(1, -1).replace(/''/g, "'");
-  if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
-  if (/^-?\d*\.\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
+  if (/^-?\\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  if (/^-?\\d*\\.\\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
 
   throw new Error("DELETE values must be SQL literals such as text, numbers, NULL, TRUE or FALSE.");
 }
