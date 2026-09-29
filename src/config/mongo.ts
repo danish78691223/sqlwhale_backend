@@ -14,8 +14,18 @@ function validateMongoUri(uri: string): void {
     throw new Error("MONGODB_URI must start with mongodb:// or mongodb+srv://.");
   }
 
-  if (!parsed.hostname || parsed.hostname.includes("<") || parsed.hostname.includes(">")) {
-    throw new Error("MONGODB_URI contains an invalid hostname. Copy the connection string from MongoDB Atlas.");
+  if (!parsed.hostname) {
+    throw new Error("MONGODB_URI does not contain a MongoDB host.");
+  }
+
+  if (parsed.protocol === "mongodb+srv:" && parsed.hostname === "sqlwhale") {
+    throw new Error(
+      "MONGODB_URI is using 'mongodb+srv://sqlwhale'. 'sqlwhale' is a database name, not an Atlas cluster hostname. Copy the full MongoDB Atlas connection string from Connect → Drivers."
+    );
+  }
+
+  if (parsed.hostname.includes("<") || parsed.hostname.includes(">")) {
+    throw new Error("MONGODB_URI still contains placeholder values. Copy the real MongoDB Atlas connection string.");
   }
 }
 
@@ -23,8 +33,11 @@ export async function connectMongo(): Promise<void> {
   if (connected && mongoose.connection.readyState === 1) return;
 
   const uri = process.env.MONGODB_URI?.trim();
+
   if (!uri) {
-    throw new Error("MONGODB_URI is missing. Add your MongoDB Atlas connection string in Render Environment Variables.");
+    throw new Error(
+      "MONGODB_URI is missing. Add the MongoDB Atlas connection string in Render Environment Variables."
+    );
   }
 
   validateMongoUri(uri);
@@ -35,6 +48,7 @@ export async function connectMongo(): Promise<void> {
       serverSelectionTimeoutMS: 15000,
       connectTimeoutMS: 15000,
     });
+
     connected = true;
     console.log("SQLWhale MongoDB connected.");
   } catch (error: any) {
@@ -42,6 +56,7 @@ export async function connectMongo(): Promise<void> {
       code: error?.code,
       message: error?.message,
     });
+
     throw new Error(
       "Unable to connect to MongoDB. Check MONGODB_URI, MongoDB Atlas Network Access, and database credentials."
     );
