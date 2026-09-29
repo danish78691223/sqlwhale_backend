@@ -1,8 +1,8 @@
 {
   "name": "sqlcrew-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "SQLWhale backend",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
@@ -18,7 +18,8 @@
     "dotenv": "^18.0.0",
     "express": "^5.2.1",
     "node-sql-parser": "^5.4.0",
-    "path": "^0.12.7"
+    "path": "^0.12.7",
+    "mongoose": "^8.18.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
