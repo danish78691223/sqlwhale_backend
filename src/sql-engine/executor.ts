@@ -3,6 +3,8 @@ import { validateCommand, validateQuery } from "./validator";
 
 import { executeCreateTable } from "./operations/createTable";
 import { executeInsert } from "./operations/insert";
+import { executeUpdate } from "./operations/update";
+import { executeDelete } from "./operations/delete";
 import { executeSelect } from "./operations/select";
 
 import { SQLResponse } from "../types/sql.types";
@@ -42,6 +44,26 @@ export function executeSQL(query: string): SQLResponse {
             rows: [],
             rowCount: result.affectedRows,
           },
+          steps: result.steps,
+        };
+      }
+
+      case "UPDATE": {
+        const result = executeUpdate(query);
+        return {
+          success: true,
+          command,
+          result: { columns: [], rows: [], rowCount: result.affectedRows },
+          steps: result.steps,
+        };
+      }
+
+      case "DELETE": {
+        const result = executeDelete(query);
+        return {
+          success: true,
+          command,
+          result: { columns: [], rows: [], rowCount: result.affectedRows },
           steps: result.steps,
         };
       }
