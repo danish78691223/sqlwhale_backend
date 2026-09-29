@@ -78,8 +78,8 @@ function parseValue(value: string): unknown {
     return trimmed.slice(1, -1).replace(/''/g, "'");
   }
 
-  if (/^-?\\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
-  if (/^-?\\d*\\.\\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
+  if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  if (/^-?\d*\\.\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
 
   throw new Error("UPDATE values must be SQL literals such as text, numbers, NULL, TRUE or FALSE.");
 }
