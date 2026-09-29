@@ -1,166 +1,23 @@
-import express, {
-  NextFunction,
-  Request,
-  Response,
-} from "express";
-
+import express,{NextFunction,Request,Response} from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-
-import { initializeSchema } from "./database/schema";
-import { seedDatabase } from "./database/seed";
-
+import {connectMongo} from "./config/mongo";
+import {seedDatabase} from "./database/seed";
 import sqlRoutes from "./routes/sql.routes";
 import tableRoutes from "./routes/table.routes";
 import lessonRoutes from "./routes/lesson.routes";
 import authRoutes from "./routes/auth.routes";
-
 dotenv.config();
-
-const app = express();
-
-const PORT = Number(process.env.PORT) || 5000;
-
-/*
-|--------------------------------------------------------------------------
-| Database Initialization
-|--------------------------------------------------------------------------
-*/
-
-try {
-  initializeSchema();
-  seedDatabase();
-
-  console.log("SQLCrew database initialized successfully.");
-} catch (error) {
-  console.error("Database initialization failed:", error);
-  process.exit(1);
+const app=express();const PORT=Number(process.env.PORT)||5000;
+async function start(){
+ try{await connectMongo();seedDatabase();}catch(error){console.error("Startup initialization failed:",error);process.exit(1);}
+ app.use(cors({origin:process.env.FRONTEND_URL||"http://localhost:3000",credentials:true,methods:["GET","POST","PUT","DELETE","OPTIONS"],allowedHeaders:["Content-Type","Authorization"]}));
+ app.use(express.json({limit:"1mb"}));app.use(express.urlencoded({extended:true}));
+ app.use((req:Request,_res:Response,next:NextFunction)=>{console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);next();});
+ app.get("/api/health",(_req,res)=>res.json({success:true,message:"SQLWhale backend is running.",timestamp:new Date().toISOString()}));
+ app.use("/api/sql",sqlRoutes);app.use("/api/tables",tableRoutes);app.use("/api/lessons",lessonRoutes);app.use("/api/auth",authRoutes);
+ app.use((_req,res)=>res.status(404).json({success:false,error:"Route not found."}));
+ app.use((error:Error,_req:Request,res:Response,_next:NextFunction)=>{console.error("Unhandled Server Error:",error);res.status(500).json({success:false,error:"Internal server error."});});
+ app.listen(PORT,()=>console.log(`SQLWhale backend running on port ${PORT}`));
 }
-
-/*
-|--------------------------------------------------------------------------
-| Middleware
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-app.use(express.json({ limit: "1mb" }));
-
-app.use(express.urlencoded({ extended: true }));
-
-/*
-|--------------------------------------------------------------------------
-| Request Logger
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  (
-    req: Request,
-    _res: Response,
-    next: NextFunction
-  ): void => {
-    console.log(
-      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`
-    );
-
-    next();
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Health Check
-|--------------------------------------------------------------------------
-*/
-
-app.get(
-  "/api/health",
-  (_req: Request, res: Response): void => {
-    res.status(200).json({
-      success: true,
-      message: "SQLCrew backend is running.",
-      timestamp: new Date().toISOString(),
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
-
-app.use("/api/sql", sqlRoutes);
-
-app.use("/api/tables", tableRoutes);
-
-app.use("/api/lessons", lessonRoutes);
-
-app.use("/api/auth", authRoutes);
-
-/*
-|--------------------------------------------------------------------------
-| 404 Handler
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  (
-    req: Request,
-    res: Response
-  ): void => {
-    res.status(404).json({
-      success: false,
-      error: `Route not found: ${req.method} ${req.originalUrl}`,
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Global Error Handler
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  (
-    error: Error,
-    _req: Request,
-    res: Response,
-    _next: NextFunction
-  ): void => {
-    console.error("Unhandled Server Error:", error);
-
-    res.status(500).json({
-      success: false,
-      error: "Internal server error.",
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Start Server
-|--------------------------------------------------------------------------
-*/
-
-app.listen(PORT, () => {
-  console.log("========================================");
-  console.log("        SQLCrew Backend Server");
-  console.log("========================================");
-  console.log(`Server: http://localhost:${PORT}`);
-  console.log(`Health: http://localhost:${PORT}/api/health`);
-  console.log(`SQL:    http://localhost:${PORT}/api/sql`);
-  console.log(`Tables: http://localhost:${PORT}/api/tables`);
-  console.log(`Lessons:http://localhost:${PORT}/api/lessons`);
-  console.log("========================================");
-});
+void start();
