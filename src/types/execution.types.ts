@@ -1,6 +1,8 @@
 export type ExecutionOperation =
   | "create_table"
   | "insert"
+  | "update"
+  | "delete"
   | "scan"
   | "filter"
   | "select"
