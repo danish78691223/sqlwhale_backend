@@ -66,8 +66,8 @@ function parseValue(value: string): unknown {
     (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
     (trimmed.startsWith('"') && trimmed.endsWith('"'))
   ) return trimmed.slice(1, -1).replace(/''/g, "'");
-  if (/^-?\\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
-  if (/^-?\\d*\\.\\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
+  if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  if (/^-?\d*\\.\d+$/.test(trimmed)) return Number.parseFloat(trimmed);
 
   throw new Error("DELETE values must be SQL literals such as text, numbers, NULL, TRUE or FALSE.");
 }
