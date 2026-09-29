@@ -14,7 +14,7 @@ export interface InsertResult {
 
 export function executeInsert(query: string): InsertResult {
   const match = query.match(
-    /INSERT\s+INTO\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\(([^)]*)\))?\s+VALUES\s*(.+)$/is
+    /INSERT\s+INTO\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))(?:\s*\(([^)]*)\))?\s+VALUES\s*(.+)$/is
   );
 
   if (!match) {
@@ -23,7 +23,7 @@ export function executeInsert(query: string): InsertResult {
     );
   }
 
-  const tableName = match[1];
+  const tableName = match[1] ?? match[2];
 
   if (!tableExists(tableName)) {
     throw new Error(`Table '${tableName}' does not exist.`);
@@ -31,14 +31,14 @@ export function executeInsert(query: string): InsertResult {
 
   const tableInfo = getTableInfo(tableName);
 
-  const specifiedColumns = match[2]
+  const specifiedColumns = match[3]
     ? match[2]
         .split(",")
-        .map((column) => column.trim())
+        .map((column) => column.trim().replace(/^"([^"]+)"$/, "$1"))
         .filter(Boolean)
     : tableInfo.columns.map((column) => column.name);
 
-  const valuesString = match[3].trim().replace(/;$/, "");
+  const valuesString = match[4].trim().replace(/;$/, "");
 
   const valueGroups = parseValueGroups(valuesString);
 
