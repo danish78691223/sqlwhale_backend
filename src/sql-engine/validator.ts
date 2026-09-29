@@ -4,12 +4,14 @@ const supportedCommands: SQLCommand[] = [
   "CREATE_TABLE",
   "INSERT",
   "SELECT",
+  "UPDATE",
+  "DELETE",
 ];
 
 export function validateCommand(command: SQLCommand): void {
   if (command === "UNKNOWN") {
     throw new Error(
-      "Unsupported SQL command. SQLCrew currently supports CREATE TABLE, INSERT and SELECT."
+      "Unsupported SQL command. SQLCrew currently supports CREATE TABLE, INSERT, SELECT, UPDATE and DELETE."
     );
   }
 
