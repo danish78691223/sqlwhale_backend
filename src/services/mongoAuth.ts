@@ -120,7 +120,22 @@ export async function markActivity(localUserId: string): Promise<void> {
 }
 
 export async function listQueryHistory(localUserId: string, limit: number) {
-  return QueryHistory.find({ localUserId }).sort({ createdAt: -1 }).limit(limit).lean().exec();
+  const items = await QueryHistory.find({ localUserId })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean()
+    .exec();
+
+  return items.map((item: any) => ({
+    id: String(item._id),
+    query: item.query,
+    command: item.command ?? null,
+    status: item.status,
+    executionTimeMs: item.executionTimeMs ?? 0,
+    rowsReturned: item.rowsReturned ?? 0,
+    errorMessage: item.errorMessage ?? null,
+    createdAt: item.createdAt,
+  }));
 }
 
 export async function learningDashboard(localUserId: string) {
