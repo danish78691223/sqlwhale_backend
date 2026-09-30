@@ -4,7 +4,7 @@ import Session from "../models/Session";
 import QueryHistory from "../models/QueryHistory";
 import LearningProgress from "../models/LearningProgress";
 import LearningActivity from "../models/LearningActivity";
-import SiteSettings from "../models/SiteSettings";
+import SiteSettings, { type SiteSettingsDocument } from "../models/SiteSettings";
 import { getCurrentUser, publicUser } from "../services/mongoAuth";
 
 const router = Router();
@@ -40,11 +40,13 @@ router.get("/overview", async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const [users, admins, settings] = await Promise.all([
+    const [users, admins, settingsRaw] = await Promise.all([
       User.countDocuments(),
       User.countDocuments({ role: "admin" }),
       SiteSettings.findOne({ key: "global" }).lean().exec(),
     ]);
+
+    const settings = settingsRaw as SiteSettingsDocument | null;
 
     res.json({
       success: true,
@@ -164,7 +166,7 @@ router.delete("/users/:id", async (req, res) => {
 
 router.get("/maintenance", async (req, res) => {
   try {
-    const settings = await SiteSettings.findOne({ key: "global" }).lean().exec();
+    const settings = await SiteSettings.findOne({ key: "global" }).lean().exec() as SiteSettingsDocument | null;
     res.json({
       success: true,
       maintenance: settings?.maintenance ?? {
@@ -200,7 +202,7 @@ router.patch("/maintenance", async (req, res) => {
       { key: "global" },
       { $set: { maintenance }, $setOnInsert: { key: "global" } },
       { upsert: true, new: true }
-    ).lean().exec();
+    ).lean().exec() as SiteSettingsDocument | null;
 
     res.json({ success: true, maintenance: settings?.maintenance });
   } catch (error) {
