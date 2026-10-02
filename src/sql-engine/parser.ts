@@ -1,7 +1,13 @@
 import { SQLCommand } from "../types/sql.types";
 
+function stripLeadingComments(query: string): string {
+  return query
+    .replace(/^\s*(?:--[^\n]*(?:\n|$)|#[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/\s*)+/g, "")
+    .trim();
+}
+
 export function parseCommand(query: string): SQLCommand {
-  const normalizedQuery = query.trim().replace(/\s+/g, " ");
+  const normalizedQuery = stripLeadingComments(query).replace(/\s+/g, " ");
 
   if (!normalizedQuery) {
     return "UNKNOWN";
