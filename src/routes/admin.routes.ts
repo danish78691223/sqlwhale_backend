@@ -211,4 +211,144 @@ router.patch("/maintenance", async (req, res) => {
   }
 });
 
+
+router.get("/tasks", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const Task = (await import("../models/Task")).default;
+    const tasks = await Task.find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    res.json({
+      success: true,
+      tasks: tasks.map((task: any) => ({
+        id: String(task._id),
+        title: task.title,
+        description: task.description,
+        expectedQuery: task.expectedQuery,
+        difficulty: task.difficulty,
+        isActive: task.isActive,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      })),
+    });
+  } catch (error) {
+    console.error("Admin tasks error:", error);
+    res.status(500).json({ success: false, error: "Unable to load tasks." });
+  }
+});
+
+router.post("/tasks", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
+    const expectedQuery = typeof req.body?.expectedQuery === "string" ? req.body.expectedQuery.trim() : "";
+    const difficulty = typeof req.body?.difficulty === "string" ? req.body.difficulty : "Easy";
+    const isActive = req.body?.isActive !== false;
+
+    if (!title || !description || !expectedQuery) {
+      return res.status(400).json({ success: false, error: "Task title, description and expected SQL query are required." });
+    }
+    if (!["Easy", "Medium", "Hard"].includes(difficulty)) {
+      return res.status(400).json({ success: false, error: "Difficulty must be Easy, Medium or Hard." });
+    }
+
+    const Task = (await import("../models/Task")).default;
+    const task = await Task.create({
+      title,
+      description,
+      expectedQuery,
+      difficulty,
+      isActive,
+      createdBy: String((admin as any)._id),
+    });
+
+    res.status(201).json({
+      success: true,
+      task: {
+        id: String(task._id),
+        title: task.title,
+        description: task.description,
+        expectedQuery: task.expectedQuery,
+        difficulty: task.difficulty,
+        isActive: task.isActive,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Admin task create error:", error);
+    res.status(500).json({ success: false, error: "Unable to create task." });
+  }
+});
+
+router.patch("/tasks/:id", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const Task = (await import("../models/Task")).default;
+    const updates: Record<string, unknown> = {};
+
+    for (const field of ["title", "description", "expectedQuery"]) {
+      if (typeof req.body?.[field] === "string") {
+        const value = req.body[field].trim();
+        if (value) updates[field] = value;
+      }
+    }
+    if (typeof req.body?.difficulty === "string" && ["Easy", "Medium", "Hard"].includes(req.body.difficulty)) {
+      updates.difficulty = req.body.difficulty;
+    }
+    if (typeof req.body?.isActive === "boolean") updates.isActive = req.body.isActive;
+
+    const task = await Task.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).lean().exec();
+
+    if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+
+    res.json({
+      success: true,
+      task: {
+        id: String(task._id),
+        title: task.title,
+        description: task.description,
+        expectedQuery: task.expectedQuery,
+        difficulty: task.difficulty,
+        isActive: task.isActive,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Admin task update error:", error);
+    res.status(500).json({ success: false, error: "Unable to update task." });
+  }
+});
+
+router.delete("/tasks/:id", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const Task = (await import("../models/Task")).default;
+    const deleted = await Task.findByIdAndDelete(req.params.id).lean().exec();
+    if (!deleted) return res.status(404).json({ success: false, error: "Task not found." });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Admin task delete error:", error);
+    res.status(500).json({ success: false, error: "Unable to delete task." });
+  }
+});
+
 export default router;
