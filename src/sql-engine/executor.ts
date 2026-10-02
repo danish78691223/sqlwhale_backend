@@ -83,6 +83,7 @@ export function executeSQL(query: string): SQLResponse {
             rowCount: result.rows.length,
           },
           steps: result.steps,
+          queryAnalysis,
         };
       }
 
