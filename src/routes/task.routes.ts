@@ -1,5 +1,5 @@
 import { Router } from "express";
-import Task from "../models/Task";
+import Task from "../models/Task.js";
 import { getCurrentUser } from "../services/mongoAuth";
 
 const router = Router();
