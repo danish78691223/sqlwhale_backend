@@ -1,4 +1,5 @@
 import { parseCommand } from "./parser";
+import { analyzeQuery } from "./queryAnalyzer";
 import { validateCommand, validateQuery } from "./validator";
 
 import { executeCreateTable } from "./operations/createTable";
@@ -16,6 +17,8 @@ export function executeSQL(query: string): SQLResponse {
     const command = parseCommand(query);
 
     validateCommand(command);
+
+    const queryAnalysis = command === "SELECT" ? analyzeQuery(query) : undefined;
 
     switch (command) {
       case "CREATE_TABLE": {
