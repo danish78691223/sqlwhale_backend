@@ -217,7 +217,7 @@ router.get("/tasks", async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const Task = (await import("../models/Task")).default;
+    const Task = (await import("../models/Task.js")).default;
     const tasks = await Task.find()
       .sort({ createdAt: -1 })
       .lean()
@@ -260,7 +260,7 @@ router.post("/tasks", async (req, res) => {
       return res.status(400).json({ success: false, error: "Difficulty must be Easy, Medium or Hard." });
     }
 
-    const Task = (await import("../models/Task")).default;
+    const Task = (await import("../models/Task.js")).default;
     const task = await Task.create({
       title,
       description,
@@ -294,7 +294,7 @@ router.patch("/tasks/:id", async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const Task = (await import("../models/Task")).default;
+    const Task = (await import("../models/Task.js")).default;
     const updates: Record<string, unknown> = {};
 
     for (const field of ["title", "description", "expectedQuery"]) {
@@ -340,7 +340,7 @@ router.delete("/tasks/:id", async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const Task = (await import("../models/Task")).default;
+    const Task = (await import("../models/Task.js")).default;
     const deleted = await Task.findByIdAndDelete(req.params.id).lean().exec();
     if (!deleted) return res.status(404).json({ success: false, error: "Task not found." });
 
