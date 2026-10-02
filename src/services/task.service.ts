@@ -1,4 +1,4 @@
-import Task from "../models/Task";
+import Task from "../models/Task.js";
 import { getCurrentUser } from "./mongoAuth";
 
 export async function listAdminTasks() {
