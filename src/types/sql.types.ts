@@ -19,10 +19,28 @@ export interface SQLResult {
   rowCount: number;
 }
 
+export interface QueryJoin {
+  type: string;
+  table: string;
+  alias?: string;
+  condition: string;
+  leftTable?: string;
+  leftColumn?: string;
+  rightTable?: string;
+  rightColumn?: string;
+}
+
+export interface QueryAnalysis {
+  tables: string[];
+  aliases: Record<string, string>;
+  joins: QueryJoin[];
+}
+
 export interface SQLResponse {
   success: boolean;
   command?: SQLCommand;
   result?: SQLResult;
   steps?: ExecutionStep[];
+  queryAnalysis?: QueryAnalysis;
   error?: string;
 }
