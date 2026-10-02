@@ -1,5 +1,6 @@
 import { Router } from "express";
 import Task from "../models/Task.js";
+import TaskCompletion from "../models/TaskCompletion.js";
 import { getCurrentUser } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
 
@@ -8,6 +9,11 @@ const router = Router();
 
 router.post("/:id/check", async (req, res) => {
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Authentication required." });
+    }
+
     const submittedQuery = typeof req.body?.query === "string" ? req.body.query.trim() : "";
     if (!submittedQuery) {
       return res.status(400).json({ success: false, error: "A SQL query is required." });
@@ -54,12 +60,21 @@ router.post("/:id/check", async (req, res) => {
       normalize(submittedColumns) === normalize(expectedColumns) &&
       normalize(submittedRows) === normalize(expectedRows);
 
+    if (correct) {
+      await TaskCompletion.updateOne(
+        { localUserId: user.localUserId, taskId: task._id },
+        { $setOnInsert: { localUserId: user.localUserId, taskId: task._id, completedAt: new Date() } },
+        { upsert: true },
+      );
+    }
+
     return res.json({
       success: true,
       correct,
       status: correct ? "correct" : "incorrect",
+      completed: correct,
       message: correct
-        ? "Correct! Your query produced the expected result."
+        ? "Correct! Task completed. You will not need to start this task again."
         : "Not quite. Your query ran successfully, but the result does not match the task.",
     });
   } catch (error) {
@@ -68,12 +83,20 @@ router.post("/:id/check", async (req, res) => {
   }
 });
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
     const tasks = await Task.find({ isActive: true })
       .sort({ createdAt: -1 })
       .lean()
       .exec();
+
+    const user = await getCurrentUser(req);
+    const completedIds = user
+      ? new Set(
+          (await TaskCompletion.find({ localUserId: user.localUserId, taskId: { $in: tasks.map((task: any) => task._id) } }).lean().exec())
+            .map((item: any) => String(item.taskId))
+        )
+      : new Set<string>();
 
     res.json({
       success: true,
@@ -83,6 +106,7 @@ router.get("/", async (_req, res) => {
         description: task.description,
         difficulty: task.difficulty,
         createdAt: task.createdAt,
+        completed: completedIds.has(String(task._id)),
       })),
     });
   } catch (error) {
