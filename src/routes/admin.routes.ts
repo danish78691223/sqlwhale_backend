@@ -306,7 +306,7 @@ router.patch("/tasks/:id", async (req, res) => {
     }
     if (typeof req.body?.isActive === "boolean") updates.isActive = req.body.isActive;
 
-    const task = await Task.findByIdAndUpdate(
+    const task: any = await Task.findByIdAndUpdate(
       req.params.id,
       { $set: updates },
       { new: true, runValidators: true }
@@ -338,7 +338,7 @@ router.delete("/tasks/:id", async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const deleted = await Task.findByIdAndDelete(req.params.id).lean().exec();
+    const deleted: any = await Task.findByIdAndDelete(req.params.id).lean().exec();
     if (!deleted) return res.status(404).json({ success: false, error: "Task not found." });
 
     res.json({ success: true });
