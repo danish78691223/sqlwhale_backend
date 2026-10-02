@@ -17,7 +17,6 @@ router.get("/", async (_req, res) => {
         id: String(task._id),
         title: task.title,
         description: task.description,
-        expectedQuery: task.expectedQuery,
         difficulty: task.difficulty,
         createdAt: task.createdAt,
       })),
