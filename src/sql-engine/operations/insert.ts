@@ -32,7 +32,7 @@ export function executeInsert(query: string): InsertResult {
   const tableInfo = getTableInfo(tableName);
 
   const specifiedColumns = match[3]
-    ? match[2]
+    ? match[3]
         .split(",")
         .map((column) => column.trim().replace(/^"([^"]+)"$/, "$1"))
         .filter(Boolean)
