@@ -3,6 +3,8 @@ import Task from "../models/Task.js";
 import TaskCompletion from "../models/TaskCompletion.js";
 import { getCurrentUser } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
+import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
+import { prepareVisualizationSteps } from "../services/visualization.service";
 import {
   buildTaskExpectedResult,
   compareTaskResults,
@@ -99,6 +101,15 @@ router.post("/:id/check", async (req, res) => {
       );
     }
 
+    const steps = submitted.steps ?? [];
+    const execution = {
+      steps,
+      stepCount: steps.length,
+      explanation: generateExplanation(steps),
+      stepExplanations: generateStepExplanations(steps),
+    };
+    const visualization = prepareVisualizationSteps(steps);
+
     const correct = compareTaskResults(submittedResult, expectedResult);
 
     if (correct) {
@@ -123,6 +134,14 @@ router.post("/:id/check", async (req, res) => {
       message: correct
         ? "Correct! Your output matches the admin's expected output. Task completed."
         : "Incorrect. Your query ran successfully, but its output does not match the expected task output.",
+      sqlResponse: {
+        success: true,
+        command: submitted.command,
+        result: submitted.result,
+        queryAnalysis: submitted.queryAnalysis,
+        execution,
+        visualization,
+      },
     });
   } catch (error) {
     console.error("Task check error:", error);
