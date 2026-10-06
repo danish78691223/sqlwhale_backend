@@ -112,36 +112,20 @@ router.post("/:id/check", async (req, res) => {
       rowCount: submitted.result.rowCount,
     };
 
-    let expectedResult: TaskExpectedResult;
-
-    if (Array.isArray(task.expectedColumns) && Array.isArray(task.expectedRows)) {
-      expectedResult = {
-        columns: task.expectedColumns,
-        rows: task.expectedRows,
-        rowCount: task.expectedRows.length,
-      };
-    } else {
-      const built = buildTaskExpectedResult(task.expectedQuery);
-      if (!built.success) {
-        console.error("Task expected query failed:", built.error);
-        return res.status(500).json({
-          success: false,
-          error: "Unable to validate this task. Ask an admin to edit and save the task again.",
-        });
-      }
-
-      expectedResult = built.result;
-
-      await Task.updateOne(
-        { _id: task._id },
-        {
-          $set: {
-            expectedColumns: expectedResult.columns,
-            expectedRows: expectedResult.rows,
-          },
-        },
-      );
+    // The admin expected query is the source of truth for grading.
+    // Execute it against the current database state instead of relying on
+    // a stored output snapshot that can become stale after data changes.
+    const built = buildTaskExpectedResult(task.expectedQuery);
+    if (!built.success) {
+      console.error("Task expected query failed:", built.error);
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to validate this task. Ask an admin to edit and save the task again.",
+      });
     }
+
+    const expectedResult = built.result;
 
     const steps = submitted.steps ?? [];
     const execution = {
