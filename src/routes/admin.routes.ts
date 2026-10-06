@@ -6,6 +6,8 @@ import LearningProgress from "../models/LearningProgress";
 import LearningActivity from "../models/LearningActivity";
 import SiteSettings, { type SiteSettingsDocument } from "../models/SiteSettings";
 import Task from "../models/Task";
+import TaskCompletion from "../models/TaskCompletion";
+import { buildTaskExpectedResult } from "../services/taskGrading.service";
 import { getCurrentUser, publicUser } from "../services/mongoAuth";
 
 const router = Router();
@@ -230,6 +232,8 @@ router.get("/tasks", async (req, res) => {
         title: task.title,
         description: task.description,
         expectedQuery: task.expectedQuery,
+        expectedColumns: task.expectedColumns ?? null,
+        expectedRows: task.expectedRows ?? null,
         difficulty: task.difficulty,
         isActive: task.isActive,
         createdAt: task.createdAt,
@@ -260,10 +264,20 @@ router.post("/tasks", async (req, res) => {
       return res.status(400).json({ success: false, error: "Difficulty must be Easy, Medium or Hard." });
     }
 
+    const expected = buildTaskExpectedResult(expectedQuery);
+    if (!expected.success) {
+      return res.status(400).json({
+        success: false,
+        error: "Expected SQL is invalid: " + expected.error,
+      });
+    }
+
     const task = await Task.create({
       title,
       description,
       expectedQuery,
+      expectedColumns: expected.result.columns,
+      expectedRows: expected.result.rows,
       difficulty,
       isActive,
       createdBy: String((admin as any)._id),
@@ -276,6 +290,8 @@ router.post("/tasks", async (req, res) => {
         title: task.title,
         description: task.description,
         expectedQuery: task.expectedQuery,
+        expectedColumns: task.expectedColumns,
+        expectedRows: task.expectedRows,
         difficulty: task.difficulty,
         isActive: task.isActive,
         createdAt: task.createdAt,
@@ -293,18 +309,49 @@ router.patch("/tasks/:id", async (req, res) => {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
+    const existing: any = await Task.findById(req.params.id).lean().exec();
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Task not found." });
+    }
+
     const updates: Record<string, unknown> = {};
+    let expectedQueryChanged = false;
 
     for (const field of ["title", "description", "expectedQuery"]) {
       if (typeof req.body?.[field] === "string") {
         const value = req.body[field].trim();
-        if (value) updates[field] = value;
+        if (value) {
+          updates[field] = value;
+          if (field === "expectedQuery" && value !== existing.expectedQuery) {
+            expectedQueryChanged = true;
+          }
+        }
       }
     }
+
     if (typeof req.body?.difficulty === "string" && ["Easy", "Medium", "Hard"].includes(req.body.difficulty)) {
       updates.difficulty = req.body.difficulty;
     }
     if (typeof req.body?.isActive === "boolean") updates.isActive = req.body.isActive;
+
+    if (expectedQueryChanged) {
+      const expected = buildTaskExpectedResult(String(updates.expectedQuery));
+      if (!expected.success) {
+        return res.status(400).json({
+          success: false,
+          error: "Expected SQL is invalid: " + expected.error,
+        });
+      }
+
+      updates.expectedColumns = expected.result.columns;
+      updates.expectedRows = expected.result.rows;
+    } else if (!Array.isArray(existing.expectedColumns) || !Array.isArray(existing.expectedRows)) {
+      const expected = buildTaskExpectedResult(existing.expectedQuery);
+      if (expected.success) {
+        updates.expectedColumns = expected.result.columns;
+        updates.expectedRows = expected.result.rows;
+      }
+    }
 
     const task: any = await Task.findByIdAndUpdate(
       req.params.id,
@@ -314,6 +361,10 @@ router.patch("/tasks/:id", async (req, res) => {
 
     if (!task) return res.status(404).json({ success: false, error: "Task not found." });
 
+    if (expectedQueryChanged) {
+      await TaskCompletion.deleteMany({ taskId: task._id });
+    }
+
     res.json({
       success: true,
       task: {
@@ -321,6 +372,8 @@ router.patch("/tasks/:id", async (req, res) => {
         title: task.title,
         description: task.description,
         expectedQuery: task.expectedQuery,
+        expectedColumns: task.expectedColumns ?? null,
+        expectedRows: task.expectedRows ?? null,
         difficulty: task.difficulty,
         isActive: task.isActive,
         createdAt: task.createdAt,
@@ -340,6 +393,8 @@ router.delete("/tasks/:id", async (req, res) => {
 
     const deleted: any = await Task.findByIdAndDelete(req.params.id).lean().exec();
     if (!deleted) return res.status(404).json({ success: false, error: "Task not found." });
+
+    await TaskCompletion.deleteMany({ taskId: deleted._id });
 
     res.json({ success: true });
   } catch (error) {
