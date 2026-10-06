@@ -20,6 +20,7 @@ function normalizeValue(value: unknown): unknown {
       }, {});
   }
 
+  if (typeof value === "string") return value.trim();
   return value;
 }
 
@@ -27,19 +28,27 @@ function normalizedJson(value: unknown): string {
   return JSON.stringify(normalizeValue(value));
 }
 
+function normalizedRows(rows: unknown[][]): string[] {
+  return rows.map((row) => normalizedJson(row)).sort();
+}
+
 export function compareTaskResults(
   submitted: TaskExpectedResult,
   expected: TaskExpectedResult,
 ): boolean {
-  return (
-    normalizedJson(submitted.columns) === normalizedJson(expected.columns) &&
-    normalizedJson(submitted.rows) === normalizedJson(expected.rows)
-  );
+  // The SQL text and column labels/aliases are intentionally ignored.
+  // Grading is based on the actual result data produced by the queries.
+  if (submitted.columns.length !== expected.columns.length) return false;
+
+  if (submitted.rows.length !== expected.rows.length) return false;
+
+  const submittedRows = normalizedRows(submitted.rows);
+  const expectedRows = normalizedRows(expected.rows);
+
+  return submittedRows.every((row, index) => row === expectedRows[index]);
 }
 
-export function buildTaskExpectedResult(
-  query: string,
-): TaskExpectationValidation {
+export function buildTaskExpectedResult(query: string): TaskExpectationValidation {
   const execution = executeQuery(query);
 
   if (!execution.success || !execution.result) {
@@ -52,8 +61,7 @@ export function buildTaskExpectedResult(
   if (execution.command !== "SELECT") {
     return {
       success: false,
-      error:
-        "The expected SQL answer for a task must be a SELECT query because task grading compares query output.",
+      error: "The expected SQL answer for a task must be a SELECT query because task grading compares query output.",
     };
   }
 
