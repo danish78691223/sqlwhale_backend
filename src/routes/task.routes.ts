@@ -3,6 +3,7 @@ import Task from "../models/Task.js";
 import TaskCompletion from "../models/TaskCompletion.js";
 import { getCurrentUser } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
+import { parseCommand } from "../sql-engine/parser";
 import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
 import { prepareVisualizationSteps } from "../services/visualization.service";
 import {
@@ -50,6 +51,15 @@ router.post("/:id/check", async (req, res) => {
         completed: true,
         alreadyCompleted: true,
         message: "Task already completed. You do not need to submit it again.",
+      });
+    }
+
+    if (parseCommand(submittedQuery) !== "SELECT") {
+      return res.json({
+        success: true,
+        correct: false,
+        status: "invalid",
+        message: "Task submissions must be SELECT queries so SQLWhale can grade the final output.",
       });
     }
 
