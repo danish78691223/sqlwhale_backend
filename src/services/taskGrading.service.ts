@@ -8,9 +8,7 @@ export type TaskExpectationValidation =
   | { success: false; error: string };
 
 function normalizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalizeValue);
-  }
+  if (Array.isArray(value)) return value.map(normalizeValue);
 
   if (value && typeof value === "object") {
     const object = value as Record<string, unknown>;
@@ -39,7 +37,9 @@ export function compareTaskResults(
   );
 }
 
-export function buildTaskExpectedResult(query: string): TaskExpectationValidation {
+export function buildTaskExpectedResult(
+  query: string,
+): TaskExpectationValidation {
   const execution = executeQuery(query);
 
   if (!execution.success || !execution.result) {
@@ -52,7 +52,8 @@ export function buildTaskExpectedResult(query: string): TaskExpectationValidatio
   if (execution.command !== "SELECT") {
     return {
       success: false,
-      error: "The expected SQL answer for a task must be a SELECT query because task grading compares query output.",
+      error:
+        "The expected SQL answer for a task must be a SELECT query because task grading compares query output.",
     };
   }
 
