@@ -3,9 +3,13 @@ import Task from "../models/Task.js";
 import TaskCompletion from "../models/TaskCompletion.js";
 import { getCurrentUser } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
+import {
+  buildTaskExpectedResult,
+  compareTaskResults,
+  type TaskExpectedResult,
+} from "../services/taskGrading.service";
 
 const router = Router();
-
 
 router.post("/:id/check", async (req, res) => {
   try {
@@ -14,18 +18,41 @@ router.post("/:id/check", async (req, res) => {
       return res.status(401).json({ success: false, error: "Authentication required." });
     }
 
-    const submittedQuery = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+    const submittedQuery =
+      typeof req.body?.query === "string" ? req.body.query.trim() : "";
     if (!submittedQuery) {
       return res.status(400).json({ success: false, error: "A SQL query is required." });
     }
 
-    const task: any = await Task.findOne({ _id: req.params.id, isActive: true }).lean().exec();
+    const task: any = await Task.findOne({
+      _id: req.params.id,
+      isActive: true,
+    })
+      .lean()
+      .exec();
+
     if (!task) {
       return res.status(404).json({ success: false, error: "Task not found." });
     }
 
+    const alreadyCompleted = await TaskCompletion.exists({
+      localUserId: user.localUserId,
+      taskId: task._id,
+    });
+
+    if (alreadyCompleted) {
+      return res.json({
+        success: true,
+        correct: true,
+        status: "correct",
+        completed: true,
+        alreadyCompleted: true,
+        message: "Task already completed. You do not need to submit it again.",
+      });
+    }
+
     const submitted = executeQuery(submittedQuery);
-    if (!submitted.success) {
+    if (!submitted.success || !submitted.result) {
       return res.json({
         success: true,
         correct: false,
@@ -35,35 +62,55 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
-    const expected = executeQuery(task.expectedQuery);
-    if (!expected.success) {
-      console.error("Task expected query failed:", expected.error);
-      return res.status(500).json({ success: false, error: "Unable to validate this task." });
+    const submittedResult: TaskExpectedResult = {
+      columns: submitted.result.columns,
+      rows: submitted.result.rows,
+      rowCount: submitted.result.rowCount,
+    };
+
+    let expectedResult: TaskExpectedResult | null = null;
+
+    if (Array.isArray(task.expectedColumns) && Array.isArray(task.expectedRows)) {
+      expectedResult = {
+        columns: task.expectedColumns,
+        rows: task.expectedRows,
+        rowCount: task.expectedRows.length,
+      };
+    } else {
+      const built = buildTaskExpectedResult(task.expectedQuery);
+      if (!built.success) {
+        console.error("Task expected query failed:", built.error);
+        return res.status(500).json({
+          success: false,
+          error: "Unable to validate this task. Ask an admin to edit and save the task again.",
+        });
+      }
+
+      expectedResult = built.result;
+
+      await Task.updateOne(
+        { _id: task._id },
+        {
+          $set: {
+            expectedColumns: expectedResult.columns,
+            expectedRows: expectedResult.rows,
+          },
+        },
+      );
     }
 
-    const normalize = (value: unknown) =>
-      JSON.stringify(value, (_key, item) =>
-        item && typeof item === "object" && !Array.isArray(item)
-          ? Object.keys(item).sort().reduce((obj, key) => {
-              obj[key] = item[key];
-              return obj;
-            }, {} as Record<string, unknown>)
-          : item
-      );
-
-    const submittedColumns = submitted.result?.columns ?? [];
-    const expectedColumns = expected.result?.columns ?? [];
-    const submittedRows = submitted.result?.rows ?? [];
-    const expectedRows = expected.result?.rows ?? [];
-
-    const correct =
-      normalize(submittedColumns) === normalize(expectedColumns) &&
-      normalize(submittedRows) === normalize(expectedRows);
+    const correct = compareTaskResults(submittedResult, expectedResult);
 
     if (correct) {
       await TaskCompletion.updateOne(
         { localUserId: user.localUserId, taskId: task._id },
-        { $setOnInsert: { localUserId: user.localUserId, taskId: task._id, completedAt: new Date() } },
+        {
+          $setOnInsert: {
+            localUserId: user.localUserId,
+            taskId: task._id,
+            completedAt: new Date(),
+          },
+        },
         { upsert: true },
       );
     }
@@ -74,8 +121,8 @@ router.post("/:id/check", async (req, res) => {
       status: correct ? "correct" : "incorrect",
       completed: correct,
       message: correct
-        ? "Correct! Task completed. You will not need to start this task again."
-        : "Not quite. Your query ran successfully, but the result does not match the task.",
+        ? "Correct! Your output matches the admin's expected output. Task completed."
+        : "Incorrect. Your query ran successfully, but its output does not match the expected task output.",
     });
   } catch (error) {
     console.error("Task check error:", error);
@@ -93,8 +140,14 @@ router.get("/", async (req, res) => {
     const user = await getCurrentUser(req);
     const completedIds = user
       ? new Set(
-          (await TaskCompletion.find({ localUserId: user.localUserId, taskId: { $in: tasks.map((task: any) => task._id) } }).lean().exec())
-            .map((item: any) => String(item.taskId))
+          (
+            await TaskCompletion.find({
+              localUserId: user.localUserId,
+              taskId: { $in: tasks.map((task: any) => task._id) },
+            })
+              .lean()
+              .exec()
+          ).map((item: any) => String(item.taskId))
         )
       : new Set<string>();
 
