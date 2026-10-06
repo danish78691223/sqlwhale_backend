@@ -24,10 +24,6 @@ function normalizeValue(value: unknown): unknown {
   return value;
 }
 
-function normalizeColumnName(column: string): string {
-  return column.trim().toLowerCase().replace(/^["]|["]$/g, "").replace(/\s+/g, " ");
-}
-
 function normalizedJson(value: unknown): string {
   return JSON.stringify(normalizeValue(value));
 }
@@ -40,19 +36,12 @@ export function compareTaskResults(
   submitted: TaskExpectedResult,
   expected: TaskExpectedResult,
 ): boolean {
-  const submittedColumns = submitted.columns.map(normalizeColumnName);
-  const expectedColumns = expected.columns.map(normalizeColumnName);
-
-  if (submittedColumns.length !== expectedColumns.length) return false;
-
-  if (submittedColumns.some((column, index) => column !== expectedColumns[index])) {
-    return false;
-  }
+  // The SQL text and column labels/aliases are intentionally ignored.
+  // Grading is based on the actual result data produced by the queries.
+  if (submitted.columns.length !== expected.columns.length) return false;
 
   if (submitted.rows.length !== expected.rows.length) return false;
 
-  // Row order is not significant unless it is part of the displayed result.
-  // Duplicate rows remain significant because the sorted arrays keep duplicates.
   const submittedRows = normalizedRows(submitted.rows);
   const expectedRows = normalizedRows(expected.rows);
 
