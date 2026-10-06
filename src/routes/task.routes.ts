@@ -1,7 +1,7 @@
 import { Router } from "express";
 import Task from "../models/Task.js";
 import TaskCompletion from "../models/TaskCompletion.js";
-import { getCurrentUser } from "../services/mongoAuth";
+import { getCurrentUser, markActivity, saveQueryHistory } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
 import { parseCommand } from "../sql-engine/parser";
 import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
@@ -20,6 +20,8 @@ router.post("/:id/check", async (req, res) => {
     if (!user) {
       return res.status(401).json({ success: false, error: "Authentication required." });
     }
+
+    await markActivity(user.localUserId);
 
     const submittedQuery =
       typeof req.body?.query === "string" ? req.body.query.trim() : "";
@@ -54,7 +56,17 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
-    if (parseCommand(submittedQuery) !== "SELECT") {
+    const submittedCommand = parseCommand(submittedQuery);
+    if (submittedCommand !== "SELECT") {
+      await saveQueryHistory(user.localUserId, {
+        query: submittedQuery,
+        command: submittedCommand,
+        status: "error",
+        executionTimeMs: 0,
+        rowsReturned: 0,
+        errorMessage: "Task submissions must be SELECT queries.",
+      });
+
       return res.json({
         success: true,
         correct: false,
@@ -63,8 +75,19 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    const startedAt = Date.now();
     const submitted = executeQuery(submittedQuery);
+    const executionTimeMs = Date.now() - startedAt;
     if (!submitted.success || !submitted.result) {
+      await saveQueryHistory(user.localUserId, {
+        query: submittedQuery,
+        command: submitted.command || submittedCommand,
+        status: "error",
+        executionTimeMs,
+        rowsReturned: 0,
+        errorMessage: submitted.error || "SQL query failed.",
+      });
+
       return res.json({
         success: true,
         correct: false,
@@ -74,13 +97,22 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    await saveQueryHistory(user.localUserId, {
+      query: submittedQuery,
+      command: submitted.command || submittedCommand,
+      status: "success",
+      executionTimeMs,
+      rowsReturned: submitted.result.rowCount,
+      errorMessage: null,
+    });
+
     const submittedResult: TaskExpectedResult = {
       columns: submitted.result.columns,
       rows: submitted.result.rows,
       rowCount: submitted.result.rowCount,
     };
 
-    let expectedResult: TaskExpectedResult | null = null;
+    let expectedResult: TaskExpectedResult;
 
     if (Array.isArray(task.expectedColumns) && Array.isArray(task.expectedRows)) {
       expectedResult = {
