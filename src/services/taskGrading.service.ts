@@ -20,26 +20,46 @@ function normalizeValue(value: unknown): unknown {
       }, {});
   }
 
+  if (typeof value === "string") return value.trim();
   return value;
+}
+
+function normalizeColumnName(column: string): string {
+  return column.trim().toLowerCase().replace(/^["]|["]$/g, "").replace(/\s+/g, " ");
 }
 
 function normalizedJson(value: unknown): string {
   return JSON.stringify(normalizeValue(value));
 }
 
+function normalizedRows(rows: unknown[][]): string[] {
+  return rows.map((row) => normalizedJson(row)).sort();
+}
+
 export function compareTaskResults(
   submitted: TaskExpectedResult,
   expected: TaskExpectedResult,
 ): boolean {
-  return (
-    normalizedJson(submitted.columns) === normalizedJson(expected.columns) &&
-    normalizedJson(submitted.rows) === normalizedJson(expected.rows)
-  );
+  const submittedColumns = submitted.columns.map(normalizeColumnName);
+  const expectedColumns = expected.columns.map(normalizeColumnName);
+
+  if (submittedColumns.length !== expectedColumns.length) return false;
+
+  if (submittedColumns.some((column, index) => column !== expectedColumns[index])) {
+    return false;
+  }
+
+  if (submitted.rows.length !== expected.rows.length) return false;
+
+  // Row order is not significant unless it is part of the displayed result.
+  // Duplicate rows remain significant because the sorted arrays keep duplicates.
+  const submittedRows = normalizedRows(submitted.rows);
+  const expectedRows = normalizedRows(expected.rows);
+
+  return submittedRows.every((row, index) => row === expectedRows[index]);
 }
 
-export function buildTaskExpectedResult(
-  query: string,
-): TaskExpectationValidation {
+export function buildTaskExpectedResult(query: string): TaskExpectationValidation {
   const execution = executeQuery(query);
 
   if (!execution.success || !execution.result) {
@@ -52,8 +72,7 @@ export function buildTaskExpectedResult(
   if (execution.command !== "SELECT") {
     return {
       success: false,
-      error:
-        "The expected SQL answer for a task must be a SELECT query because task grading compares query output.",
+      error: "The expected SQL answer for a task must be a SELECT query because task grading compares query output.",
     };
   }
 
