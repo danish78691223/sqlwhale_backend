@@ -145,6 +145,12 @@ router.post("/:id/check", async (req, res) => {
           $setOnInsert: {
             localUserId: user.localUserId,
             taskId: task._id,
+            pointsAwarded:
+              task.difficulty === "Hard"
+                ? 20
+                : task.difficulty === "Medium"
+                  ? 15
+                  : 10,
             completedAt: new Date(),
           },
         },
