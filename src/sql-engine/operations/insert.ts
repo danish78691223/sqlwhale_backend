@@ -30,6 +30,9 @@ export function executeInsert(query: string): InsertResult {
   }
 
   const tableInfo = getTableInfo(tableName);
+  const beforeRowCount = (
+    db.prepare(`SELECT COUNT(*) as count FROM ${escapeIdentifier(tableName)}`).get() as { count: number }
+  ).count;
 
   const specifiedColumns = match[3]
     ? match[3]
@@ -76,13 +79,25 @@ export function executeInsert(query: string): InsertResult {
 
   transaction();
 
+  const afterRowCount = (
+    db.prepare(`SELECT COUNT(*) as count FROM ${escapeIdentifier(tableName)}`).get() as { count: number }
+  ).count;
+
   const step: ExecutionStep = {
     id: 1,
     operation: "insert",
     targetTable: tableName,
     affectedRows: insertedRows,
     columns: specifiedColumns,
+    affectedRows: insertedRows,
     explanation: `Inserted ${insertedRows.length} row(s) into '${tableName}'.`,
+    metadata: {
+      tableName,
+      insertedColumns: specifiedColumns,
+      beforeRowCount,
+      afterRowCount,
+      tableColumns: tableInfo.columns,
+    },
   };
 
   return {
