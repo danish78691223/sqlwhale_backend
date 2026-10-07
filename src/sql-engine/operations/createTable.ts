@@ -63,7 +63,8 @@ export function executeCreateTable(query: string): CreateTableResult {
     columns: tableInfo.columns.map((column) => column.name),
     explanation: `Created the '${tableName}' table with ${columns.length} column(s).`,
     metadata: {
-      columns,
+      tableName,
+      columns: tableInfo.columns,
     },
   };
 
