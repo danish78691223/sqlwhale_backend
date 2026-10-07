@@ -89,7 +89,6 @@ export function executeInsert(query: string): InsertResult {
     targetTable: tableName,
     affectedRows: insertedRows,
     columns: specifiedColumns,
-    affectedRows: insertedRows,
     explanation: `Inserted ${insertedRows.length} row(s) into '${tableName}'.`,
     metadata: {
       tableName,
