@@ -3,6 +3,7 @@ import { analyzeQuery } from "./queryAnalyzer";
 import { validateCommand, validateQuery } from "./validator";
 
 import { executeCreateTable } from "./operations/createTable";
+import { executeDropTable } from "./operations/dropTable";
 import { executeInsert } from "./operations/insert";
 import { executeUpdate } from "./operations/update";
 import { executeDelete } from "./operations/delete";
@@ -23,6 +24,21 @@ export function executeSQL(query: string): SQLResponse {
     switch (command) {
       case "CREATE_TABLE": {
         const result = executeCreateTable(query);
+
+        return {
+          success: true,
+          command,
+          result: {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+          },
+          steps: result.steps,
+        };
+      }
+
+      case "DROP_TABLE": {
+        const result = executeDropTable(query);
 
         return {
           success: true,
