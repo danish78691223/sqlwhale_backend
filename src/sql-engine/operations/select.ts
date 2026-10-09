@@ -13,9 +13,9 @@ export function executeSelect(query: string): ExecutionResult {
 
   for (const internalTable of INTERNAL_TABLES) {
     const referencePattern = new RegExp(
-      "\\b(?:FROM|JOIN)\\s+(?:(?:main|temp)\\s*\\.\\s*)?[\\\"\\x60]?" +
+      "\\b(?:FROM|JOIN)\\s+(?:(?:main|temp)\\s*\\.\\s*)?[\\x22\\x60]?" +
         internalTable +
-        "[\\\"\\x60]?\\b",
+        "[\\x22\\x60]?\\b",
       "i"
     );
     if (referencePattern.test(sqlWithoutStringLiterals)) {
