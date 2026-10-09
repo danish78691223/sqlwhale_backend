@@ -1,10 +1,28 @@
 import db from "../../config/database";
+import { INTERNAL_TABLES } from "../../database/internalTables";
 import {
   ExecutionResult,
   ExecutionStep,
 } from "../../types/execution.types";
 
 export function executeSelect(query: string): ExecutionResult {
+  const sqlWithoutComments = query
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ");
+  const sqlWithoutStringLiterals = sqlWithoutComments.replace(/\'(?:\'\'|[^\'])*\'/g, "\'\'");
+
+  for (const internalTable of INTERNAL_TABLES) {
+    const referencePattern = new RegExp(
+      "\\b(?:FROM|JOIN)\\s+(?:(?:main|temp)\\s*\\.\\s*)?[\\\"\\x60]?" +
+        internalTable +
+        "[\\\"\\x60]?\\b",
+      "i"
+    );
+    if (referencePattern.test(sqlWithoutStringLiterals)) {
+      throw new Error("The table '" + internalTable + "' is reserved for internal application use.");
+    }
+  }
+
   const normalizedQuery = query.trim().replace(/;\s*$/, "");
 
   const tableNames = extractTableNames(normalizedQuery);
