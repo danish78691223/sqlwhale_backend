@@ -18,6 +18,6 @@ const db = new Proxy(baseDatabase, {
     const value = Reflect.get(active, property, active);
     return typeof value === "function" ? value.bind(active) : value;
   },
-}) as Database;
+}) as Database.Database;
 
 export default db;
