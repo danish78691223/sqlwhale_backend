@@ -9,7 +9,7 @@ import { seedDatabase } from "./seed";
 
 export const GUEST_WORKSPACE_COOKIE = "sqlwhale_guest_workspace";
 const workspaceDirectory = path.join(process.cwd(), "data", "workspaces");
-const databases = new Map<string, Database>();
+const databases = new Map<string, Database.Database>();
 if (!fs.existsSync(workspaceDirectory)) fs.mkdirSync(workspaceDirectory, { recursive: true });
 
 function cookieValue(req: Request, name: string): string | null {
@@ -32,7 +32,7 @@ function workspacePath(key: string): string {
   return path.join(workspaceDirectory, `${safeId}.sqlite`);
 }
 
-async function openWorkspace(key: string): Promise<Database> {
+async function openWorkspace(key: string): Promise<Database.Database> {
   const cached = databases.get(key);
   if (cached) return cached;
   const filename = workspacePath(key);
@@ -56,7 +56,7 @@ async function openWorkspace(key: string): Promise<Database> {
   return database;
 }
 
-export async function persistWorkspace(key: string, database: Database): Promise<void> {
+export async function persistWorkspace(key: string, database: Database.Database): Promise<void> {
   database.pragma("wal_checkpoint(TRUNCATE)");
   const data = fs.readFileSync(workspacePath(key));
   await SQLWorkspace.updateOne(
