@@ -1,6 +1,48 @@
-import {Request,Response} from "express";
-import {getCurrentUser,markActivity,saveQueryHistory} from "../services/mongoAuth";
-import {runSQLQuery} from "../services/sql.service";
-import {generateExplanation,generateStepExplanations} from "../services/explanation.service";
-import {prepareVisualizationSteps} from "../services/visualization.service";
-export async function executeSQLController(req:Request,res:Response):Promise<void>{try{const{query}=req.body;if(typeof query!=="string"||!query.trim()){res.status(400).json({success:false,error:"A non-empty SQL query must be provided as a string."});return;}const u=await getCurrentUser(req);if(u)await markActivity(u.localUserId);const started=Date.now(),r=runSQLQuery(query),ms=Date.now()-started;if(!r.success){if(u)await saveQueryHistory(u.localUserId,{query:query.trim(),command:r.command||null,status:"error",executionTimeMs:ms,rowsReturned:0,errorMessage:r.error||"SQL query failed."});res.status(400).json(r);return;}const steps=r.steps??[],visualization=prepareVisualizationSteps(steps),explanation=generateExplanation(steps),stepExplanations=generateStepExplanations(steps);if(u)await saveQueryHistory(u.localUserId,{query:query.trim(),command:r.command||null,status:"success",executionTimeMs:ms,rowsReturned:r.result?.rowCount??r.result?.rows?.length??0,errorMessage:null});res.json({success:true,command:r.command,result:r.result,execution:{steps,stepCount:steps.length,explanation,stepExplanations},visualization});}catch(e){console.error("SQL Controller Error:",e);res.status(500).json({success:false,error:"Internal server error."});}}
+import { Request, Response } from "express";
+import { getCurrentUser, markActivity, saveQueryHistory } from "../services/mongoAuth";
+import { resolveWorkspace } from "../database/workspaces";
+import { runWithDatabase } from "../database/databaseContext";
+import { runSQLQuery } from "../services/sql.service";
+import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
+import { prepareVisualizationSteps } from "../services/visualization.service";
+
+export async function executeSQLController(req: Request, res: Response): Promise<void> {
+  try {
+    const { query } = req.body;
+    if (typeof query !== "string" || !query.trim()) {
+      res.status(400).json({ success: false, error: "A non-empty SQL query must be provided as a string." });
+      return;
+    }
+
+    const user = await getCurrentUser(req);
+    if (user) await markActivity(user.localUserId);
+    const workspace = await resolveWorkspace(req, res, user?.localUserId ?? null);
+    const started = Date.now();
+    const result = runWithDatabase(workspace.database, () => runSQLQuery(query));
+    const executionTimeMs = Date.now() - started;
+
+    if (!result.success) {
+      if (user) await saveQueryHistory(user.localUserId, {
+        query: query.trim(), command: result.command || null, status: "error",
+        executionTimeMs, rowsReturned: 0, errorMessage: result.error || "SQL query failed.",
+      });
+      res.status(400).json(result);
+      return;
+    }
+
+    const steps = result.steps ?? [];
+    const visualization = prepareVisualizationSteps(steps);
+    const explanation = generateExplanation(steps);
+    const stepExplanations = generateStepExplanations(steps);
+    if (user) await saveQueryHistory(user.localUserId, {
+      query: query.trim(), command: result.command || null, status: "success",
+      executionTimeMs, rowsReturned: result.result?.rowCount ?? result.result?.rows?.length ?? 0,
+      errorMessage: null,
+    });
+    res.json({ success: true, command: result.command, result: result.result,
+      execution: { steps, stepCount: steps.length, explanation, stepExplanations }, visualization });
+  } catch (error) {
+    console.error("SQL Controller Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error." });
+  }
+}
