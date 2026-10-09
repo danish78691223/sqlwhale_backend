@@ -12,12 +12,7 @@ export function executeSelect(query: string): ExecutionResult {
   const sqlWithoutStringLiterals = sqlWithoutComments.replace(/\'(?:\'\'|[^\'])*\'/g, "\'\'");
 
   for (const internalTable of INTERNAL_TABLES) {
-    const referencePattern = new RegExp(
-      "\\b(?:FROM|JOIN)\\s+(?:(?:main|temp)\\s*\\.\\s*)?[\\x22\\x60]?" +
-        internalTable +
-        "[\\x22\\x60]?\\b",
-      "i"
-    );
+    const referencePattern = new RegExp("\\b" + internalTable + "\\b", "i");
     if (referencePattern.test(sqlWithoutStringLiterals)) {
       throw new Error("The table '" + internalTable + "' is reserved for internal application use.");
     }
