@@ -1,4 +1,5 @@
 import db from "../../config/database";
+import { isInternalTableName } from "../../database/internalTables";
 import {
   escapeIdentifier,
   getTableInfo,
@@ -24,6 +25,10 @@ export function executeCreateTable(query: string): CreateTableResult {
 
   const tableName = match[1];
   const columnDefinitions = match[2];
+
+  if (isInternalTableName(tableName)) {
+    throw new Error("The table '" + tableName + "' is reserved for internal application use.");
+  }
 
   if (tableExists(tableName)) {
     throw new Error(`Table '${tableName}' already exists.`);
