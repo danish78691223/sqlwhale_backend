@@ -67,7 +67,7 @@ export async function resolveWorkspace(req: Request, res: Response, localUserId?
 }
 
 /** Adopt a guest workspace on signup without overwriting an existing account workspace. */
-export function adoptGuestWorkspace(guestId: string | null, localUserId: string): void {
+export function getGuestWorkspaceId(req: Request): string | null {\n  const id = cookieValue(req, GUEST_WORKSPACE_COOKIE);\n  return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;\n}\n\nexport function adoptGuestWorkspace(guestId: string | null, localUserId: string): void {
   if (!guestId || !/^[0-9a-f-]{36}$/i.test(guestId)) return;
   const guestKey = `guest:${guestId}`;
   const accountKey = `account:${localUserId}`;
