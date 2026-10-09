@@ -1,4 +1,5 @@
 import db from "../config/database";
+import { isInternalTableName } from "./internalTables";
 import { TableColumn, TableData, TableInfo } from "../types/table.types";
 
 export function getAllTables(): string[] {
@@ -8,15 +9,20 @@ export function getAllTables(): string[] {
       FROM sqlite_master
       WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
-      AND name != 'system_metadata'
       ORDER BY name
     `)
     .all() as { name: string }[];
 
-  return rows.map((row) => row.name);
+  return rows
+    .map((row) => row.name)
+    .filter((name) => !isInternalTableName(name));
 }
 
 export function tableExists(tableName: string): boolean {
+  if (isInternalTableName(tableName)) {
+    return false;
+  }
+
   const result = db
     .prepare(`
       SELECT name
@@ -30,6 +36,10 @@ export function tableExists(tableName: string): boolean {
 }
 
 export function getTableInfo(tableName: string): TableInfo {
+  if (isInternalTableName(tableName)) {
+    throw new Error(`Table '${tableName}' is reserved for internal application use.`);
+  }
+
   if (!tableExists(tableName)) {
     throw new Error(`Table '${tableName}' does not exist.`);
   }
