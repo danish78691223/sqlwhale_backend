@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type Database from "better-sqlite3";
 
-const databaseContext = new AsyncLocalStorage<Database>();
+type SQLiteDatabase = Database.Database;
 
-export function getActiveDatabase(fallback: Database): Database {
+const databaseContext = new AsyncLocalStorage<SQLiteDatabase>();
+
+export function getActiveDatabase(fallback: SQLiteDatabase): SQLiteDatabase {
   return databaseContext.getStore() ?? fallback;
 }
 
-export function runWithDatabase<T>(database: Database, callback: () => T): T {
+export function runWithDatabase<T>(database: SQLiteDatabase, callback: () => T): T {
   return databaseContext.run(database, callback);
 }
