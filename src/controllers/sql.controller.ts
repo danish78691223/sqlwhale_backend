@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { getCurrentUser, markActivity, saveQueryHistory } from "../services/mongoAuth";
-import { resolveWorkspace } from "../database/workspaces";
+import { persistWorkspace, resolveWorkspace } from "../database/workspaces";
 import { runWithDatabase } from "../database/databaseContext";
 import { runSQLQuery } from "../services/sql.service";
 import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
@@ -19,6 +19,7 @@ export async function executeSQLController(req: Request, res: Response): Promise
     const workspace = await resolveWorkspace(req, res, user?.localUserId ?? null);
     const started = Date.now();
     const result = runWithDatabase(workspace.database, () => runSQLQuery(query));
+    await persistWorkspace(workspace.key, workspace.database);
     const executionTimeMs = Date.now() - started;
 
     if (!result.success) {
