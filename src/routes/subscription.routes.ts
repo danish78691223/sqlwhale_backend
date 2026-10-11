@@ -210,27 +210,32 @@ router.post("/order", async (req, res) => {
     if (user.currentPlan === "SQLWhale Premium") {
       return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
     }
+    const direct = req.body?.direct === true;
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    const state: any = await BargainState.findOne({
-      _id: sessionId,
-      localUserId: user.localUserId,
-      expiresAt: { $gt: new Date() },
-    }).exec();
-    if (!state || !state.locked || !Number.isSafeInteger(state.acceptedPrice) || state.acceptedPrice < MIN_PRICE) {
-      return res.status(400).json({ success: false, error: "Complete bargaining first. A valid deal is required before checkout." });
+    let amountRupees = ORIGINAL_PRICE;
+    if (!direct) {
+      const state: any = await BargainState.findOne({
+        _id: sessionId,
+        localUserId: user.localUserId,
+        expiresAt: { $gt: new Date() },
+      }).exec();
+      if (!state || !state.locked || !Number.isSafeInteger(state.acceptedPrice) || state.acceptedPrice < MIN_PRICE) {
+        return res.status(400).json({ success: false, error: "Complete bargaining first. A valid deal is required before checkout." });
+      }
+      amountRupees = state.acceptedPrice;
     }
     if (!razorpayCredentials()) {
       return res.status(503).json({ success: false, error: "Payments are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to Render." });
     }
 
-    const amountPaise = state.acceptedPrice * 100;
+    const amountPaise = amountRupees * 100;
     const order = await razorpayRequest<{ id: string; amount: number; currency: string }>("/orders", {
       method: "POST",
       body: JSON.stringify({
         amount: amountPaise,
         currency: CURRENCY,
         receipt: "sw_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex"),
-        notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", bargainSessionId: sessionId },
+        notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", ...(sessionId ? { bargainSessionId: sessionId } : {}), purchaseType: direct ? "direct" : "bargain" },
       }),
     });
     await SubscriptionPayment.create({
