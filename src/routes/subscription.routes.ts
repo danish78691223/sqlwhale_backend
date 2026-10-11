@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import { Router, type Request, type Response } from "express";
-import Razorpay from "razorpay";
 import { getCurrentUser } from "../services/mongoAuth";
 import { BargainState, SubscriptionPayment } from "../models/SubscriptionPayment";
 
@@ -10,11 +9,29 @@ const ORIGINAL_PRICE = 1000;
 const CURRENCY = "INR";
 const SESSION_TTL_MS = 30 * 60 * 1000;
 
-function razorpayClient(): Razorpay | null {
+function razorpayCredentials() {
   const keyId = process.env.RAZORPAY_KEY_ID?.trim();
   const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
   if (!keyId || !keySecret) return null;
-  return new Razorpay({ key_id: keyId, key_secret: keySecret });
+  return { keyId, keySecret };
+}
+
+async function razorpayRequest<T>(path: string, options: { method?: "GET" | "POST"; body?: string } = {}): Promise<T> {
+  const credentials = razorpayCredentials();
+  if (!credentials) throw new Error("Razorpay credentials are missing.");
+  const response = await fetch("https://api.razorpay.com/v1" + path, {
+    method: options.method || "GET",
+    headers: {
+      Authorization: "Basic " + Buffer.from(credentials.keyId + ":" + credentials.keySecret).toString("base64"),
+      "Content-Type": "application/json",
+    },
+    body: options.body,
+  });
+  const payload: any = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error?.description || "Razorpay API request failed with status " + response.status);
+  }
+  return payload as T;
 }
 
 async function requireUser(req: Request, res: Response) {
@@ -184,65 +201,9 @@ router.post("/order", async (req, res) => {
     if (!state || !state.locked || !Number.isSafeInteger(state.acceptedPrice) || state.acceptedPrice < MIN_PRICE) {
       return res.status(400).json({ success: false, error: "Complete bargaining first. A valid deal is required before checkout." });
     }
-    const razorpay = razorpayClient();
-    if (!razorpay) return res.status(503).json({ success: false, error: "Payments are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to Render." });
-
-    const amountPaise = state.acceptedPrice * 100;
-    const order = await razorpay.orders.create({
-      amount: amountPaise,
-      currency: CURRENCY,
-      receipt: `sw_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
-      notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", bargainSessionId: sessionId },
-    });
-    await SubscriptionPayment.create({
-      localUserId: user.localUserId,
-      orderId: order.id,
-      amountPaise,
-      currency: CURRENCY,
-      status: "created",
-      plan: "SQLWhale Premium",
-    });
-    res.status(201).json({
-      success: true,
-      order: { id: order.id, amount: order.amount, currency: order.currency },
-      keyId: process.env.RAZORPAY_KEY_ID?.trim(),
-      plan: "SQLWhale Premium",
-    });
-  } catch (error: any) {
-    console.error("Subscription order error:", error?.message || error);
-    res.status(500).json({ success: false, error: "Unable to create a Razorpay order. Please try again." });
-  }
-});
-
-router.post("/verify", async (req, res) => {
-  try {
-    const user = await requireUser(req, res);
-    if (!user) return;
-    const orderId = typeof req.body?.razorpay_order_id === "string" ? req.body.razorpay_order_id : "";
-    const paymentId = typeof req.body?.razorpay_payment_id === "string" ? req.body.razorpay_payment_id : "";
-    const signature = typeof req.body?.razorpay_signature === "string" ? req.body.razorpay_signature : "";
-    if (!orderId || !paymentId || !signature) {
-      return res.status(400).json({ success: false, error: "Missing Razorpay payment verification details." });
-    }
-
-    const savedPayment: any = await SubscriptionPayment.findOne({ orderId, localUserId: user.localUserId }).exec();
-    if (!savedPayment) return res.status(404).json({ success: false, error: "Payment order not found for this account." });
-    if (savedPayment.status === "paid") {
-      return res.json({ success: true, verified: true, subscribed: true, message: "Subscription is already active." });
-    }
-
-    const secret = process.env.RAZORPAY_KEY_SECRET?.trim();
-    if (!secret) return res.status(503).json({ success: false, error: "Payment verification is not configured." });
-    const expected = crypto.createHmac("sha256", secret).update(`${orderId}|${paymentId}`).digest("hex");
-    const actualBuffer = Buffer.from(signature, "hex");
-    const expectedBuffer = Buffer.from(expected, "hex");
-    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
-      return res.status(400).json({ success: false, verified: false, error: "Payment signature verification failed." });
-    }
-
-    const razorpay = razorpayClient();
-    if (!razorpay) return res.status(503).json({ success: false, error: "Razorpay client is not configured." });
-    const payment = await razorpay.payments.fetch(paymentId);
+    const payment = await razorpayRequest<{ order_id: string; status: string; amount: number; currency: string }>(
+      "/payments/" + encodeURIComponent(paymentId)
+    );
     if (payment.order_id !== orderId || payment.status !== "captured" || Number(payment.amount) !== savedPayment.amountPaise || payment.currency !== CURRENCY) {
       return res.status(400).json({ success: false, verified: false, error: "Payment is not captured or does not match this order." });
     }
