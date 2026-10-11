@@ -1,4 +1,4 @@
-import crypto from "crypto";
+"import crypto from "crypto";
 import { Router, type Request, type Response } from "express";
 import { getCurrentUser } from "../services/mongoAuth";
 import { BargainState, SubscriptionPayment } from "../models/SubscriptionPayment";
@@ -16,9 +16,13 @@ function razorpayCredentials() {
   return { keyId, keySecret };
 }
 
-async function razorpayRequest<T>(path: string, options: { method?: "GET" | "POST"; body?: string } = {}): Promise<T> {
+async function razorpayRequest<T>(
+  path: string,
+  options: { method?: "GET" | "POST"; body?: string } = {},
+): Promise<T> {
   const credentials = razorpayCredentials();
   if (!credentials) throw new Error("Razorpay credentials are missing.");
+
   const response = await fetch("https://api.razorpay.com/v1" + path, {
     method: options.method || "GET",
     headers: {
@@ -58,9 +62,8 @@ router.get("/config", (_req, res) => {
   res.json({
     success: true,
     originalPrice: ORIGINAL_PRICE,
-    // The public key ID is safe to expose. Never return the secret.
     keyId: process.env.RAZORPAY_KEY_ID?.trim() || null,
-    ready: Boolean(process.env.RAZORPAY_KEY_ID?.trim() && process.env.RAZORPAY_KEY_SECRET?.trim()),
+    ready: Boolean(razorpayCredentials()),
     currency: CURRENCY,
   });
 });
@@ -71,10 +74,11 @@ router.get("/status", async (req, res) => {
     if (!user) return;
     const payment = await SubscriptionPayment.findOne({ localUserId: user.localUserId, status: "paid" })
       .sort({ verifiedAt: -1 }).lean().exec() as any;
+    const subscribed = Boolean(payment) || user.currentPlan === "SQLWhale Premium";
     res.json({
       success: true,
-      subscribed: Boolean(payment),
-      plan: payment?.plan ?? null,
+      subscribed,
+      plan: subscribed ? (payment?.plan || user.currentPlan) : null,
       paidAt: payment?.verifiedAt ?? null,
     });
   } catch (error) {
@@ -87,6 +91,9 @@ router.post("/bargain/start", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
+    if (user.currentPlan === "SQLWhale Premium") {
+      return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
+    }
     const state = await BargainState.create({
       localUserId: user.localUserId,
       attempts: 0,
@@ -112,7 +119,11 @@ router.post("/bargain/offer", async (req, res) => {
     }
     if (!sessionId) return res.status(400).json({ success: false, error: "Start a new bargain session first." });
 
-    const state: any = await BargainState.findOne({ _id: sessionId, localUserId: user.localUserId, expiresAt: { $gt: new Date() } }).exec();
+    const state: any = await BargainState.findOne({
+      _id: sessionId,
+      localUserId: user.localUserId,
+      expiresAt: { $gt: new Date() },
+    }).exec();
     if (!state) return res.status(404).json({ success: false, error: "Bargain session expired. Start again." });
     if (state.locked || state.attempts >= 3) {
       return res.status(409).json({ success: false, error: "Final price is already locked.", bargain: publicBargain(state) });
@@ -127,7 +138,7 @@ router.post("/bargain/offer", async (req, res) => {
       dealPrice = offer;
       state.acceptedPrice = offer;
       state.locked = true;
-      message = `Deal Done! 🎉 Aapka bargaining skill gazab hai! Pay ₹${offer} and unlock SQLWhale Premium.`;
+      message = "Deal Done! 🎉 Aapka bargaining skill gazab hai! Pay ₹" + offer + " and unlock SQLWhale Premium.";
     } else if (state.attempts === 1) {
       counterOffer = 900;
       message = "Error 404: Itna kam amount accept nahi ho sakta! 😅 Whale ka first counter-offer ₹900 hai.";
@@ -156,7 +167,6 @@ router.post("/bargain/offer", async (req, res) => {
   }
 });
 
-
 router.post("/bargain/accept", async (req, res) => {
   try {
     const user = await requireUser(req, res);
@@ -181,7 +191,7 @@ router.post("/bargain/accept", async (req, res) => {
     await state.save();
     res.json({
       success: true,
-      message: `Deal accepted! 🎉 Checkout at ₹${price} to unlock SQLWhale Premium.`,
+      message: "Deal accepted! 🎉 Checkout at ₹" + price + " to unlock SQLWhale Premium.",
       dealPrice: price,
       final: true,
       bargain: publicBargain(state),
@@ -196,13 +206,83 @@ router.post("/order", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
+    if (user.currentPlan === "SQLWhale Premium") {
+      return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
+    }
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    const state: any = await BargainState.findOne({ _id: sessionId, localUserId: user.localUserId, expiresAt: { $gt: new Date() } }).exec();
+    const state: any = await BargainState.findOne({
+      _id: sessionId,
+      localUserId: user.localUserId,
+      expiresAt: { $gt: new Date() },
+    }).exec();
     if (!state || !state.locked || !Number.isSafeInteger(state.acceptedPrice) || state.acceptedPrice < MIN_PRICE) {
       return res.status(400).json({ success: false, error: "Complete bargaining first. A valid deal is required before checkout." });
     }
+    if (!razorpayCredentials()) {
+      return res.status(503).json({ success: false, error: "Payments are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to Render." });
+    }
+
+    const amountPaise = state.acceptedPrice * 100;
+    const order = await razorpayRequest<{ id: string; amount: number; currency: string }>("/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: amountPaise,
+        currency: CURRENCY,
+        receipt: "sw_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex"),
+        notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", bargainSessionId: sessionId },
+      }),
+    });
+    await SubscriptionPayment.create({
+      localUserId: user.localUserId,
+      orderId: order.id,
+      amountPaise,
+      currency: CURRENCY,
+      status: "created",
+      plan: "SQLWhale Premium",
+    });
+    res.status(201).json({
+      success: true,
+      order: { id: order.id, amount: order.amount, currency: order.currency },
+      keyId: process.env.RAZORPAY_KEY_ID?.trim(),
+      plan: "SQLWhale Premium",
+    });
+  } catch (error: any) {
+    console.error("Subscription order error:", error?.message || error);
+    res.status(500).json({ success: false, error: "Unable to create a Razorpay order. Please try again." });
+  }
+});
+
+router.post("/verify", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const orderId = typeof req.body?.razorpay_order_id === "string" ? req.body.razorpay_order_id : "";
+    const paymentId = typeof req.body?.razorpay_payment_id === "string" ? req.body.razorpay_payment_id : "";
+    const signature = typeof req.body?.razorpay_signature === "string" ? req.body.razorpay_signature : "";
+    if (!orderId || !paymentId || !signature) {
+      return res.status(400).json({ success: false, error: "Missing Razorpay payment verification details." });
+    }
+
+    const savedPayment: any = await SubscriptionPayment.findOne({ orderId, localUserId: user.localUserId }).exec();
+    if (!savedPayment) return res.status(404).json({ success: false, error: "Payment order not found for this account." });
+    if (savedPayment.status === "paid") {
+      if (savedPayment.paymentId === paymentId) {
+        return res.json({ success: true, verified: true, subscribed: true, message: "Subscription is already active." });
+      }
+      return res.status(409).json({ success: false, error: "This order has already been paid." });
+    }
+
+    const credentials = razorpayCredentials();
+    if (!credentials) return res.status(503).json({ success: false, error: "Payment verification is not configured." });
+    const expected = crypto.createHmac("sha256", credentials.keySecret).update(orderId + "|" + paymentId).digest("hex");
+    const actualBuffer = Buffer.from(signature, "hex");
+    const expectedBuffer = Buffer.from(expected, "hex");
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+      return res.status(400).json({ success: false, verified: false, error: "Payment signature verification failed." });
+    }
+
     const payment = await razorpayRequest<{ order_id: string; status: string; amount: number; currency: string }>(
-      "/payments/" + encodeURIComponent(paymentId)
+      "/payments/" + encodeURIComponent(paymentId),
     );
     if (payment.order_id !== orderId || payment.status !== "captured" || Number(payment.amount) !== savedPayment.amountPaise || payment.currency !== CURRENCY) {
       return res.status(400).json({ success: false, verified: false, error: "Payment is not captured or does not match this order." });
@@ -213,7 +293,6 @@ router.post("/order", async (req, res) => {
     savedPayment.verifiedAt = new Date();
     await savedPayment.save();
 
-    // This app's currentPlan field is the canonical account-level subscription label.
     const User = (await import("../models/User")).default;
     await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
 
