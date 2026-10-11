@@ -114,8 +114,8 @@ router.post("/bargain/offer", async (req, res) => {
     if (!user) return;
     const offer = Number(req.body?.offer);
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    if (!Number.isSafeInteger(offer) || offer < 1 || offer > ORIGINAL_PRICE * 5) {
-      return res.status(400).json({ success: false, error: "Enter a whole-number offer between ₹1 and ₹5,000." });
+    if (!Number.isSafeInteger(offer) || offer < 1 || offer > ORIGINAL_PRICE) {
+      return res.status(400).json({ success: false, error: "Enter a whole-number offer between ₹1 and ₹1,000." });
     }
     if (!sessionId) return res.status(400).json({ success: false, error: "Start a new bargain session first." });
 
@@ -267,6 +267,8 @@ router.post("/verify", async (req, res) => {
     if (!savedPayment) return res.status(404).json({ success: false, error: "Payment order not found for this account." });
     if (savedPayment.status === "paid") {
       if (savedPayment.paymentId === paymentId) {
+        const User = (await import("../models/User")).default;
+        await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
         return res.json({ success: true, verified: true, subscribed: true, message: "Subscription is already active." });
       }
       return res.status(409).json({ success: false, error: "This order has already been paid." });
