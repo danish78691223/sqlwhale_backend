@@ -268,7 +268,6 @@ router.post("/verify", async (req, res) => {
     if (!savedPayment) return res.status(404).json({ success: false, error: "Payment order not found for this account." });
     if (savedPayment.status === "paid") {
       if (savedPayment.paymentId === paymentId) {
-        const User = (await import("../models/User")).default;
         await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
         return res.json({ success: true, verified: true, subscribed: true, message: "Subscription is already active." });
       }
