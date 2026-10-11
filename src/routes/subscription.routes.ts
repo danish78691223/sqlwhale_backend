@@ -1,4 +1,4 @@
-"import crypto from "crypto";
+import crypto from "crypto";
 import { Router, type Request, type Response } from "express";
 import { getCurrentUser } from "../services/mongoAuth";
 import { BargainState, SubscriptionPayment } from "../models/SubscriptionPayment";
