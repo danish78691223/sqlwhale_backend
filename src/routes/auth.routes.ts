@@ -2,6 +2,7 @@ import {Router,type Request,type Response} from "express";
 import crypto from "crypto";
 import User from "../models/User";
 import PasswordResetToken from "../models/PasswordResetToken";
+import Session from "../models/Session";
 import TaskCompletion from "../models/TaskCompletion.js";
 import Task from "../models/Task.js";
 import {authenticate,completeLearningProgress,createAccount,createSession,getCurrentUser,getLearningProgress,learningDashboard,listQueryHistory,logout,publicUser} from "../services/mongoAuth";
@@ -50,13 +51,15 @@ router.post("/reset-password",async(req,res)=>{
     const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
     const reset=await PasswordResetToken.findOne({tokenHash,usedAt:null,expiresAt:{$gt:new Date()}}).exec() as any;
     if(!reset)return res.status(400).json({success:false,error:"This reset link is invalid, expired, or already used. Request a new one."});
-    const passwordHash=crypto.scryptSync(password,"sqlwhale-mongodb-auth-v1",64).toString("hex");
-    const user=await User.findOneAndUpdate({localUserId:reset.userId},{$set:{passwordHash}},{new:true}).exec();
-    if(!user){await PasswordResetToken.deleteOne({_id:reset._id});return res.status(400).json({success:false,error:"This reset link is invalid or expired. Request a new one."});}
-    // Atomically consume the token; only one request can successfully use it.
+    // Claim the token before changing credentials so concurrent submissions cannot reuse it.
     const consumed=await PasswordResetToken.findOneAndUpdate({_id:reset._id,usedAt:null,expiresAt:{$gt:new Date()}},{$set:{usedAt:new Date()}},{new:true}).exec();
     if(!consumed)return res.status(400).json({success:false,error:"This reset link has already been used. Request a new one."});
-    await PasswordResetToken.deleteMany({userId:reset.userId,_id:{$ne:reset._id}});
+    const passwordHash=crypto.scryptSync(password,"sqlwhale-mongodb-auth-v1",64).toString("hex");
+    const user=await User.findOneAndUpdate({localUserId:reset.userId},{$set:{passwordHash}},{new:true}).exec();
+    if(!user)return res.status(400).json({success:false,error:"This reset link is invalid or expired. Request a new one."});
+    // Password reset revokes existing sessions so the old password cannot keep a session active.
+    await Session.deleteMany({localUserId:reset.userId});
+    await PasswordResetToken.deleteMany({userId:reset.userId});
     return res.json({success:true,message:"Your password has been reset. You can now log in."});
   }catch(error){console.error("Reset password failed:",error);return res.status(500).json({success:false,error:"Unable to reset your password right now."});}
 });
