@@ -28,6 +28,7 @@ async function requireUser(req: Request, res: Response) {
 
 function publicBargain(state: any) {
   return {
+    sessionId: String(state._id),
     originalPrice: ORIGINAL_PRICE,
     minimumPrice: MIN_PRICE,
     attempts: state.attempts,
@@ -136,6 +137,42 @@ router.post("/bargain/offer", async (req, res) => {
   } catch (error) {
     console.error("Bargain offer error:", error);
     res.status(500).json({ success: false, error: "Unable to process your offer." });
+  }
+});
+
+
+router.post("/bargain/accept", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
+    const price = Number(req.body?.price);
+    if (!sessionId || !Number.isSafeInteger(price)) {
+      return res.status(400).json({ success: false, error: "A valid bargain session and counter-offer price are required." });
+    }
+    const state: any = await BargainState.findOne({
+      _id: sessionId,
+      localUserId: user.localUserId,
+      expiresAt: { $gt: new Date() },
+    }).exec();
+    if (!state) return res.status(404).json({ success: false, error: "Bargain session expired. Start again." });
+    const allowedPrice = state.attempts === 1 ? 900 : state.attempts === 2 ? 750 : null;
+    if (state.locked || allowedPrice !== price || state.attempts < 1 || state.attempts > 2) {
+      return res.status(409).json({ success: false, error: "That counter-offer is no longer available." });
+    }
+    state.acceptedPrice = price;
+    state.locked = true;
+    await state.save();
+    res.json({
+      success: true,
+      message: `Deal accepted! 🎉 Checkout at ₹${price} to unlock SQLWhale Premium.`,
+      dealPrice: price,
+      final: true,
+      bargain: publicBargain(state),
+    });
+  } catch (error) {
+    console.error("Counter-offer accept error:", error);
+    res.status(500).json({ success: false, error: "Unable to accept the counter-offer." });
   }
 });
 
