@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Router, type Request, type Response } from "express";
 import { getCurrentUser } from "../services/mongoAuth";
 import { BargainState, SubscriptionPayment } from "../models/SubscriptionPayment";
+import User from "../models/User";
 
 const router = Router();
 const MIN_PRICE = 600;
@@ -295,7 +296,6 @@ router.post("/verify", async (req, res) => {
     savedPayment.verifiedAt = new Date();
     await savedPayment.save();
 
-    const User = (await import("../models/User")).default;
     await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
 
     res.json({ success: true, verified: true, subscribed: true, plan: "SQLWhale Premium", message: "Payment verified! SQLWhale Premium is active." });
