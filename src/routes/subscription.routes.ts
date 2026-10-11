@@ -30,7 +30,6 @@ function publicBargain(state: any) {
   return {
     sessionId: String(state._id),
     originalPrice: ORIGINAL_PRICE,
-    minimumPrice: MIN_PRICE,
     attempts: state.attempts,
     remainingAttempts: Math.max(0, 3 - state.attempts),
     locked: state.locked,
