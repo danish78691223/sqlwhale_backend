@@ -13,7 +13,7 @@ router.post("/signup",async(req,res)=>{const name=typeof req.body?.name==="strin
 router.post("/login",async(req,res)=>{const email=typeof req.body?.email==="string"?req.body.email.trim().toLowerCase():"";const password=typeof req.body?.password==="string"?req.body.password:"";try{const user=await authenticate(email,password);if(!user)return res.status(401).json({success:false,error:"Invalid SQLWhale email or password."});await createSession(res,user.localUserId);res.json({success:true,authenticated:true,user:publicUser(user),accountType:"sqlwhale"});}catch(e){console.error(e);res.status(500).json({success:false,error:"Unable to login to SQLWhale."});}});
 router.post("/forgot-password",async(req,res)=>{
   const email=typeof req.body?.email==="string"?req.body.email.trim().toLowerCase():"";
-  if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))return res.status(400).json({success:false,error:"Enter a valid email address."});
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({success:false,error:"Enter a valid email address."});
   try{
     const user=await User.findOne({email}).exec() as any;
     // Always return the same message to avoid revealing which emails have accounts.
@@ -22,7 +22,7 @@ router.post("/forgot-password",async(req,res)=>{
       const token=crypto.randomBytes(32).toString("hex");
       const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
       await PasswordResetToken.create({tokenHash,userId:user.localUserId,expiresAt:new Date(Date.now()+5*60*1000)});
-      const base=(process.env.FRONTEND_URL||process.env.WEB_URL||"https://webxwhale.com").replace(/\\/+$/,"");
+      const base=(process.env.FRONTEND_URL||process.env.WEB_URL||"https://webxwhale.com").replace(/\/+$/,"");
       const resetUrl=base+"/reset-password?token="+encodeURIComponent(token);
       const apiKey=process.env.RESEND_API_KEY;
       const from=process.env.RESEND_FROM_EMAIL||process.env.FROM_EMAIL;
