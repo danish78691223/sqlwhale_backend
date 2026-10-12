@@ -5,6 +5,8 @@ import TaskRevealUsage from "../models/TaskRevealUsage.js";
 import { getCurrentUser, markActivity, saveQueryHistory } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
 import db from "../config/database";
+import { resolveWorkspace, persistWorkspace } from "../database/workspaces";
+import { runWithDatabase } from "../database/databaseContext";
 import { parseCommand } from "../sql-engine/parser";
 import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
 import { prepareVisualizationSteps } from "../services/visualization.service";
@@ -36,11 +38,14 @@ router.post("/:id/start", async (req, res) => {
       /\\bfrom\\s+shop\\b/i.test(task.expectedQuery || "");
 
     if (isShopProductsTask) {
-      const existingTable = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = 'shop' LIMIT 1"
-      ).get() as { name: string } | undefined;
+      const workspace = await resolveWorkspace(req, res, user.localUserId);
+      const createdTable = runWithDatabase(workspace.database, () => {
+        const existingTable = db.prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = 'shop' LIMIT 1"
+        ).get() as { name: string } | undefined;
 
-      if (!existingTable) {
+        if (existingTable) return false;
+
         db.exec(`
           CREATE TABLE shop (
             product_name TEXT,
@@ -55,7 +60,10 @@ router.post("/:id/start", async (req, res) => {
             ('USB Cable', 'Accessories', 1200, 5),
             ('Headphones', 'Audio', 1800, 10);
         `);
-      }
+        return true;
+      });
+      await persistWorkspace(workspace.key, workspace.database);
+      return res.json({ success: true, ready: true, sampleDataCreated: createdTable });
     }
 
     return res.json({ success: true, ready: true });
