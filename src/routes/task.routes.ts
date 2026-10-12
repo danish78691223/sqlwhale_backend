@@ -18,6 +18,26 @@ import {
 
 const router = Router();
 
+const FAILED_QUERIES_TASK_TITLE = "users with failed queries";
+const TASK_USERS_TABLE = "task_failed_query_users";
+const TASK_QUERY_HISTORY_TABLE = "task_failed_query_history";
+
+function isFailedQueriesTask(task: any): boolean {
+  return task.title?.trim().toLowerCase() === FAILED_QUERIES_TASK_TITLE;
+}
+
+/**
+ * The exercise uses isolated, synthetic workspace tables. Translate the
+ * exercise's familiar internal-table names only while grading this task;
+ * the SQL engine's global internal-table protection remains unchanged.
+ */
+function rewriteFailedQueriesTaskSql(query: string): string {
+  return query
+    .replace(/\\bwebxwhale_users\\b/gi, TASK_USERS_TABLE)
+    .replace(/\\bquery_history\\b/gi, TASK_QUERY_HISTORY_TABLE);
+}
+
+
 /**
  * Prepare the known shop-products exercise in the signed-in user's own
  * workspace. Never modify an existing shop table; sample data is inserted
@@ -64,6 +84,41 @@ router.post("/:id/start", async (req, res) => {
       });
       await persistWorkspace(workspace.key, workspace.database);
       return res.json({ success: true, ready: true, sampleDataCreated: createdTable });
+    }
+
+
+    if (isFailedQueriesTask(task)) {
+      const workspace = await resolveWorkspace(req, res, user.localUserId);
+      runWithDatabase(workspace.database, () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS ${TASK_USERS_TABLE} (
+            webxwhale_user_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS ${TASK_QUERY_HISTORY_TABLE} (
+            id INTEGER PRIMARY KEY,
+            webxwhale_user_id INTEGER NOT NULL,
+            status TEXT NOT NULL
+          );
+          INSERT OR IGNORE INTO ${TASK_USERS_TABLE} (webxwhale_user_id, name, email) VALUES
+            (1, 'Aarav Sharma', 'aarav@example.com'),
+            (2, 'Priya Patel', 'priya@example.com'),
+            (3, 'Kabir Khan', 'kabir@example.com'),
+            (4, 'Meera Joshi', 'meera@example.com');
+          INSERT OR IGNORE INTO ${TASK_QUERY_HISTORY_TABLE} (id, webxwhale_user_id, status) VALUES
+            (1, 1, 'failed'),
+            (2, 1, 'success'),
+            (3, 1, 'failed'),
+            (4, 2, 'success'),
+            (5, 3, 'failed'),
+            (6, 3, 'failed'),
+            (7, 3, 'failed'),
+            (8, 4, 'success');
+        `);
+      });
+      await persistWorkspace(workspace.key, workspace.database);
+      return res.json({ success: true, ready: true, sampleDataCreated: true });
     }
 
     return res.json({ success: true, ready: true });
@@ -229,7 +284,10 @@ router.post("/:id/check", async (req, res) => {
 
     const workspace = await resolveWorkspace(req, res, user.localUserId);
     const startedAt = Date.now();
-    const submitted = runWithDatabase(workspace.database, () => executeQuery(submittedQuery));
+    const queryToExecute = isFailedQueriesTask(task)
+      ? rewriteFailedQueriesTaskSql(submittedQuery)
+      : submittedQuery;
+    const submitted = runWithDatabase(workspace.database, () => executeQuery(queryToExecute));
     const executionTimeMs = Date.now() - startedAt;
     if (!submitted.success || !submitted.result) {
       await saveQueryHistory(user.localUserId, {
@@ -268,7 +326,10 @@ router.post("/:id/check", async (req, res) => {
     // The admin expected query is the source of truth for grading.
     // Execute it against the current database state instead of relying on
     // a stored output snapshot that can become stale after data changes.
-    const built = runWithDatabase(workspace.database, () => buildTaskExpectedResult(task.expectedQuery));
+    const expectedQueryToExecute = isFailedQueriesTask(task)
+      ? rewriteFailedQueriesTaskSql(task.expectedQuery)
+      : task.expectedQuery;
+    const built = runWithDatabase(workspace.database, () => buildTaskExpectedResult(expectedQueryToExecute));
     if (!built.success) {
       console.error("Task expected query failed:", built.error);
       return res.status(500).json({
