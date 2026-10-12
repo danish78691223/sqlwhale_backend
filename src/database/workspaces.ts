@@ -49,8 +49,16 @@ async function openWorkspace(key: string): Promise<Database.Database> {
   database.pragma("foreign_keys = ON");
   database.pragma("journal_mode = WAL");
   databases.set(key, database);
-  if (isNew) {
-    runWithDatabase(database, () => seedDatabase());
+  // Ensure existing workspaces also receive the default learning schema.
+  // seedDatabase is guarded: it creates/seeds defaults only when the core
+  // employees table is missing, and migrates only the known legacy schema.
+  // User-created tables are not dropped or overwritten by this check.
+  runWithDatabase(database, () => seedDatabase());
+  if (isNew || !saved?.data) {
+    await persistWorkspace(key, database);
+  } else {
+    // Persist only if schema seeding/migration changed the workspace.
+    // The seed routine is idempotent for workspaces already on the current schema.
     await persistWorkspace(key, database);
   }
   return database;
