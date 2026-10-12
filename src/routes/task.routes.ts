@@ -33,8 +33,8 @@ function isFailedQueriesTask(task: any): boolean {
  */
 function rewriteFailedQueriesTaskSql(query: string): string {
   return query
-    .replace(/\\bwebxwhale_users\\b/gi, TASK_USERS_TABLE)
-    .replace(/\\bquery_history\\b/gi, TASK_QUERY_HISTORY_TABLE);
+    .replace(/\bwebxwhale_users\b/gi, TASK_USERS_TABLE)
+    .replace(/\bquery_history\b/gi, TASK_QUERY_HISTORY_TABLE);
 }
 
 
