@@ -4,6 +4,7 @@ import TaskCompletion from "../models/TaskCompletion.js";
 import TaskRevealUsage from "../models/TaskRevealUsage.js";
 import { getCurrentUser, markActivity, saveQueryHistory } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
+import db from "../config/database";
 import { parseCommand } from "../sql-engine/parser";
 import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
 import { prepareVisualizationSteps } from "../services/visualization.service";
@@ -14,6 +15,55 @@ import {
 } from "../services/taskGrading.service";
 
 const router = Router();
+
+/**
+ * Prepare the known shop-products exercise in the signed-in user's own
+ * workspace. Never modify an existing shop table; sample data is inserted
+ * only when this endpoint creates the table itself.
+ */
+router.post("/:id/start", async (req, res) => {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Sign in to start SQL tasks." });
+    }
+
+    const task: any = await Task.findOne({ _id: req.params.id, isActive: true }).lean().exec();
+    if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+
+    const isShopProductsTask =
+      task.title?.trim().toLowerCase() === "find available products above rs 1000" &&
+      /\\bfrom\\s+shop\\b/i.test(task.expectedQuery || "");
+
+    if (isShopProductsTask) {
+      const existingTable = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = 'shop' LIMIT 1"
+      ).get() as { name: string } | undefined;
+
+      if (!existingTable) {
+        db.exec(`
+          CREATE TABLE shop (
+            product_name TEXT,
+            category TEXT,
+            price REAL,
+            stock INTEGER
+          );
+          INSERT INTO shop (product_name, category, price, stock) VALUES
+            ('Keyboard', 'Accessories', 1500, 20),
+            ('Mouse', 'Accessories', 800, 15),
+            ('Monitor', 'Electronics', 7500, 12),
+            ('USB Cable', 'Accessories', 1200, 5),
+            ('Headphones', 'Audio', 1800, 10);
+        `);
+      }
+    }
+
+    return res.json({ success: true, ready: true });
+  } catch (error) {
+    console.error("Task workspace setup error:", error);
+    return res.status(500).json({ success: false, error: "Unable to prepare this task's sample data." });
+  }
+});
 
 
 router.post("/:id/reveal-answer", async (req, res) => {
