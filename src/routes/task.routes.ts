@@ -227,8 +227,9 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    const workspace = await resolveWorkspace(req, res, user.localUserId);
     const startedAt = Date.now();
-    const submitted = executeQuery(submittedQuery);
+    const submitted = runWithDatabase(workspace.database, () => executeQuery(submittedQuery));
     const executionTimeMs = Date.now() - startedAt;
     if (!submitted.success || !submitted.result) {
       await saveQueryHistory(user.localUserId, {
@@ -267,7 +268,7 @@ router.post("/:id/check", async (req, res) => {
     // The admin expected query is the source of truth for grading.
     // Execute it against the current database state instead of relying on
     // a stored output snapshot that can become stale after data changes.
-    const built = buildTaskExpectedResult(task.expectedQuery);
+    const built = runWithDatabase(workspace.database, () => buildTaskExpectedResult(task.expectedQuery));
     if (!built.success) {
       console.error("Task expected query failed:", built.error);
       return res.status(500).json({
