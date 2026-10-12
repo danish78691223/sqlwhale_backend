@@ -1,6 +1,7 @@
 import { Router } from "express";
 import Task from "../models/Task.js";
 import TaskCompletion from "../models/TaskCompletion.js";
+import TaskRevealUsage from "../models/TaskRevealUsage.js";
 import { getCurrentUser, markActivity, saveQueryHistory } from "../services/mongoAuth";
 import { executeQuery } from "../services/execution.service";
 import { parseCommand } from "../sql-engine/parser";
@@ -13,6 +14,99 @@ import {
 } from "../services/taskGrading.service";
 
 const router = Router();
+
+
+router.post("/:id/reveal-answer", async (req, res) => {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        error: "Sign in to reveal task answers. Guest users cannot reveal answers.",
+      });
+    }
+
+    const task: any = await Task.findOne({
+      _id: req.params.id,
+      isActive: true,
+    }).lean().exec();
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: "Task not found." });
+    }
+
+    const now = new Date();
+    const windowMs = 24 * 60 * 60 * 1000;
+    let usage: any = await TaskRevealUsage.findOne({ localUserId: user.localUserId }).exec();
+
+    if (!usage) {
+      try {
+        usage = await TaskRevealUsage.create({
+          localUserId: user.localUserId,
+          count: 0,
+          windowStartedAt: now,
+        });
+      } catch {
+        usage = await TaskRevealUsage.findOne({ localUserId: user.localUserId }).exec();
+      }
+    }
+
+    if (!usage) {
+      return res.status(500).json({ success: false, error: "Unable to check reveal limit." });
+    }
+
+    const windowStartedAt = new Date(usage.windowStartedAt).getTime();
+    if (now.getTime() - windowStartedAt >= windowMs) {
+      usage.count = 0;
+      usage.windowStartedAt = now;
+      await usage.save();
+    }
+
+    if (usage.count >= 5) {
+      const resetAt = new Date(new Date(usage.windowStartedAt).getTime() + windowMs);
+      return res.status(429).json({
+        success: false,
+        code: "REVEAL_LIMIT_REACHED",
+        error: "You've used all 5 answer reveals. Your limit resets after 24 hours. Subscribe to continue.",
+        used: 5,
+        limit: 5,
+        resetAt: resetAt.toISOString(),
+      });
+    }
+
+    const updatedUsage: any = await TaskRevealUsage.findOneAndUpdate(
+      { localUserId: user.localUserId, count: { $lt: 5 } },
+      { $inc: { count: 1 } },
+      { new: true },
+    ).exec();
+
+    if (!updatedUsage) {
+      const latest: any = await TaskRevealUsage.findOne({ localUserId: user.localUserId }).lean().exec();
+      const resetAt = new Date(new Date(latest?.windowStartedAt ?? now).getTime() + windowMs);
+      return res.status(429).json({
+        success: false,
+        code: "REVEAL_LIMIT_REACHED",
+        error: "You've used all 5 answer reveals. Your limit resets after 24 hours. Subscribe to continue.",
+        used: 5,
+        limit: 5,
+        resetAt: resetAt.toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      answer: task.expectedQuery,
+      used: updatedUsage.count,
+      remaining: Math.max(0, 5 - updatedUsage.count),
+      limit: 5,
+      resetAt: new Date(new Date(updatedUsage.windowStartedAt).getTime() + windowMs).toISOString(),
+    });
+  } catch (error) {
+    console.error("Task answer reveal error:", error);
+    return res.status(500).json({ success: false, error: "Unable to reveal this answer right now." });
+  }
+});
 
 router.post("/:id/check", async (req, res) => {
   try {
