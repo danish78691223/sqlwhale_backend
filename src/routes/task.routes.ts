@@ -118,6 +118,12 @@ router.post("/:id/start", async (req, res) => {
     const task: any = await Task.findOne({ _id: req.params.id, isActive: true }).lean().exec();
     if (!task) return res.status(404).json({ success: false, error: "Task not found." });
 
+    if (Array.isArray(task.requiredTables) && task.requiredTables.length) {
+      const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
+      runWithDatabase(taskWorkspace.database, () => provisionTaskTables(task, taskWorkspace.database));
+      await persistWorkspace(taskWorkspace.key, taskWorkspace.database);
+    }
+
     const isShopProductsTask =
       task.title?.trim().toLowerCase() === "find available products above rs 1000" &&
       /\\bfrom\\s+shop\\b/i.test(task.expectedQuery || "");
