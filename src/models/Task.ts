@@ -6,7 +6,7 @@ const TaskTableConfigSchema = new Schema({
   mode: { type: String, enum: ["template", "custom"], default: "template" },
   columns: { type: [Schema.Types.Mixed], default: [] },
   relationships: { type: [Schema.Types.Mixed], default: [] },
-  seedRows: { type: [[Schema.Types.Mixed]], default: [] },
+  seedRows: { type: [Schema.Types.Mixed], default: [] },
 }, { _id: false });
 
 const TaskSchema = new Schema({
