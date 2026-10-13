@@ -22,6 +22,71 @@ const FAILED_QUERIES_TASK_TITLE = "users with failed queries";
 const TASK_USERS_TABLE = "task_failed_query_users";
 const TASK_QUERY_HISTORY_TABLE = "task_failed_query_history";
 
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
+const SQL_COLUMN_TYPES: Record<string, string> = {
+  INTEGER: "INTEGER", REAL: "REAL", TEXT: "TEXT", BOOLEAN: "INTEGER", DATE: "TEXT",
+};
+
+function provisionTaskTables(task: any, workspaceDatabase: any): void {
+  const configured = Array.isArray(task.requiredTables) ? task.requiredTables : [];
+  if (!configured.length) return;
+
+  const pending = [...configured];
+  const ordered: any[] = [];
+  const names = new Set(pending.map((table) => String(table.tableName || "").toLowerCase()));
+  while (pending.length) {
+    const index = pending.findIndex((table) =>
+      (Array.isArray(table.relationships) ? table.relationships : []).every((rel: any) =>
+        !names.has(String(rel.referencesTable || "").toLowerCase()) ||
+        ordered.some((ready) => String(ready.tableName).toLowerCase() === String(rel.referencesTable).toLowerCase())
+      )
+    );
+    ordered.push(pending.splice(index < 0 ? 0 : index, 1)[0]);
+  }
+
+  for (const table of ordered) {
+    const tableName = String(table.tableName || "");
+    if (!SQL_IDENTIFIER.test(tableName) || !Array.isArray(table.columns) || !table.columns.length) {
+      throw new Error("Task table configuration is invalid.");
+    }
+    const existing = workspaceDatabase.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = lower(?) LIMIT 1"
+    ).get(tableName);
+    if (existing) continue;
+
+    const columnSql = table.columns.map((column: any) => {
+      const name = String(column?.name || "");
+      const type = SQL_COLUMN_TYPES[String(column?.type || "").toUpperCase()];
+      if (!SQL_IDENTIFIER.test(name) || !type) throw new Error("Task table column configuration is invalid.");
+      return "\"" + name + "\" " + type +
+        (column.primaryKey ? " PRIMARY KEY" : "") +
+        (column.notNull ? " NOT NULL" : "");
+    });
+    for (const relationship of Array.isArray(table.relationships) ? table.relationships : []) {
+      if (!SQL_IDENTIFIER.test(String(relationship.column || "")) ||
+          !SQL_IDENTIFIER.test(String(relationship.referencesTable || "")) ||
+          !SQL_IDENTIFIER.test(String(relationship.referencesColumn || ""))) {
+        throw new Error("Task table relationship configuration is invalid.");
+      }
+      columnSql.push("FOREIGN KEY (\"" + relationship.column + "\") REFERENCES \"" +
+        relationship.referencesTable + "\" (\"" + relationship.referencesColumn + "\")");
+    }
+    workspaceDatabase.exec("CREATE TABLE \"" + tableName + "\" (" + columnSql.join(", ") + ")");
+
+    const rows = Array.isArray(table.seedRows) ? table.seedRows : [];
+    for (const row of rows) {
+      const columns = table.columns.map((column: any) => String(column.name));
+      const values = columns.map((name: string) => row && typeof row === "object" ? row[name] ?? null : null);
+      const placeholders = columns.map(() => "?").join(", ");
+      workspaceDatabase.prepare(
+        "INSERT INTO \"" + tableName + "\" (" + columns.map((name: string) => "\"" + name + "\"").join(", ") +
+        ") VALUES (" + placeholders + ")"
+      ).run(...values);
+    }
+  }
+}
+
+
 function isFailedQueriesTask(task: any): boolean {
   return task.title?.trim().toLowerCase() === FAILED_QUERIES_TASK_TITLE;
 }
@@ -59,6 +124,7 @@ router.post("/:id/start", async (req, res) => {
 
     if (isShopProductsTask) {
       const workspace = await resolveWorkspace(req, res, user.localUserId);
+      runWithDatabase(workspace.database, () => provisionTaskTables(task, workspace.database));
       const createdTable = runWithDatabase(workspace.database, () => {
         const existingTable = db.prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = 'shop' LIMIT 1"
