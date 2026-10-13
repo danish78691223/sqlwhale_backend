@@ -6,6 +6,7 @@ import LearningProgress from "../models/LearningProgress";
 import LearningActivity from "../models/LearningActivity";
 import SiteSettings, { type SiteSettingsDocument } from "../models/SiteSettings";
 import Task from "../models/Task";
+import TaskTableTemplate from "../models/TaskTableTemplate";
 import TaskCompletion from "../models/TaskCompletion";
 import { buildTaskExpectedResult } from "../services/taskGrading.service";
 import { getCurrentUser, publicUser } from "../services/mongoAuth";
@@ -215,6 +216,65 @@ router.patch("/maintenance", async (req, res) => {
 });
 
 
+
+const DEFAULT_TASK_TABLE_TEMPLATES = [
+  { name: "departments", description: "Departments and office locations", isDefault: true, columns: [{ name: "department_id", type: "INTEGER", primaryKey: true }, { name: "department_name", type: "TEXT", notNull: true }, { name: "location", type: "TEXT", notNull: true }], relationships: [], seedRows: [{ department_id: 1, department_name: "IT", location: "Pune" }, { department_id: 2, department_name: "HR", location: "Mumbai" }, { department_id: 3, department_name: "Finance", location: "Bengaluru" }] },
+  { name: "employees", description: "Employees linked to departments", isDefault: true, columns: [{ name: "employee_id", type: "INTEGER", primaryKey: true }, { name: "name", type: "TEXT", notNull: true }, { name: "department_id", type: "INTEGER", notNull: true }], relationships: [{ column: "department_id", referencesTable: "departments", referencesColumn: "department_id" }], seedRows: [{ employee_id: 1, name: "Aisha", department_id: 1 }, { employee_id: 2, name: "Rahul", department_id: 2 }, { employee_id: 3, name: "Kabir", department_id: 1 }, { employee_id: 4, name: "Sara", department_id: 3 }] },
+  { name: "projects", description: "Projects assigned to employees", isDefault: true, columns: [{ name: "project_id", type: "INTEGER", primaryKey: true }, { name: "employee_id", type: "INTEGER", notNull: true }, { name: "project_name", type: "TEXT", notNull: true }], relationships: [{ column: "employee_id", referencesTable: "employees", referencesColumn: "employee_id" }], seedRows: [{ project_id: 1, employee_id: 1, project_name: "Website" }, { project_id: 2, employee_id: 3, project_name: "API" }, { project_id: 3, employee_id: 3, project_name: "Dashboard" }, { project_id: 4, employee_id: 4, project_name: "Billing" }] },
+  { name: "shop", description: "Products, prices and stock for inventory tasks", isDefault: true, columns: [{ name: "product_name", type: "TEXT", notNull: true }, { name: "category", type: "TEXT", notNull: true }, { name: "price", type: "REAL", notNull: true }, { name: "stock", type: "INTEGER", notNull: true }], relationships: [], seedRows: [{ product_name: "Keyboard", category: "Accessories", price: 1500, stock: 20 }, { product_name: "Mouse", category: "Accessories", price: 800, stock: 15 }, { product_name: "Monitor", category: "Electronics", price: 7500, stock: 12 }, { product_name: "USB Cable", category: "Accessories", price: 1200, stock: 5 }, { product_name: "Headphones", category: "Audio", price: 1800, stock: 10 }] },
+];
+
+router.get("/table-templates", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    for (const template of DEFAULT_TASK_TABLE_TEMPLATES) {
+      await TaskTableTemplate.updateOne(
+        { name: template.name },
+        { $setOnInsert: template },
+        { upsert: true }
+      ).exec();
+    }
+    const templates = await TaskTableTemplate.find().sort({ name: 1 }).lean().exec();
+    res.json({ success: true, templates: templates.map((item: any) => ({
+      id: String(item._id), name: item.name, description: item.description,
+      columns: item.columns, relationships: item.relationships, seedRows: item.seedRows,
+      isDefault: item.isDefault,
+    })) });
+  } catch (error) {
+    console.error("Admin table templates error:", error);
+    res.status(500).json({ success: false, error: "Unable to load table templates." });
+  }
+});
+
+router.post("/table-templates", async (req, res) => {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const columns = Array.isArray(req.body?.columns) ? req.body.columns : [];
+    const relationships = Array.isArray(req.body?.relationships) ? req.body.relationships : [];
+    const seedRows = Array.isArray(req.body?.seedRows) ? req.body.seedRows : [];
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,49}$/.test(name) || !columns.length) {
+      return res.status(400).json({ success: false, error: "Use a valid table name and provide at least one column." });
+    }
+    for (const column of columns) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,49}$/.test(String(column?.name || "")) ||
+          !["INTEGER", "REAL", "TEXT", "BOOLEAN", "DATE"].includes(column?.type)) {
+        return res.status(400).json({ success: false, error: "Each column needs a valid name and supported data type." });
+      }
+    }
+    const template = await TaskTableTemplate.create({
+      name, description: String(req.body?.description || "").trim(), columns, relationships, seedRows, isDefault: false,
+    });
+    res.status(201).json({ success: true, template: { id: String(template._id), name: template.name, description: template.description, columns: template.columns, relationships: template.relationships, seedRows: template.seedRows, isDefault: template.isDefault } });
+  } catch (error: any) {
+    if (error?.code === 11000) return res.status(409).json({ success: false, error: "A table template with that name already exists." });
+    console.error("Admin table template create error:", error);
+    res.status(500).json({ success: false, error: "Unable to create table template." });
+  }
+});
+
 router.get("/tasks", async (req, res) => {
   try {
     const admin = await requireAdmin(req, res);
@@ -234,6 +294,7 @@ router.get("/tasks", async (req, res) => {
         expectedQuery: task.expectedQuery,
         expectedColumns: task.expectedColumns ?? null,
         expectedRows: task.expectedRows ?? null,
+        requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
         createdAt: task.createdAt,
@@ -256,6 +317,7 @@ router.post("/tasks", async (req, res) => {
     const expectedQuery = typeof req.body?.expectedQuery === "string" ? req.body.expectedQuery.trim() : "";
     const difficulty = typeof req.body?.difficulty === "string" ? req.body.difficulty : "Easy";
     const isActive = req.body?.isActive !== false;
+    const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : [];
 
     if (!title || !description || !expectedQuery) {
       return res.status(400).json({ success: false, error: "Task title, description and expected SQL query are required." });
@@ -264,8 +326,8 @@ router.post("/tasks", async (req, res) => {
       return res.status(400).json({ success: false, error: "Difficulty must be Easy, Medium or Hard." });
     }
 
-    const expected = buildTaskExpectedResult(expectedQuery);
-    if (!expected.success) {
+    const expected = requiredTables.length ? null : buildTaskExpectedResult(expectedQuery);
+    if (expected && !expected.success) {
       return res.status(400).json({
         success: false,
         error: "Expected SQL is invalid: " + expected.error,
@@ -276,8 +338,9 @@ router.post("/tasks", async (req, res) => {
       title,
       description,
       expectedQuery,
-      expectedColumns: expected.result.columns,
-      expectedRows: expected.result.rows,
+      expectedColumns: expected?.success ? expected.result.columns : null,
+      expectedRows: expected?.success ? expected.result.rows : null,
+      requiredTables,
       difficulty,
       isActive,
       createdBy: String((admin as any)._id),
@@ -292,6 +355,7 @@ router.post("/tasks", async (req, res) => {
         expectedQuery: task.expectedQuery,
         expectedColumns: task.expectedColumns,
         expectedRows: task.expectedRows,
+        requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
         createdAt: task.createdAt,
@@ -316,6 +380,8 @@ router.patch("/tasks/:id", async (req, res) => {
 
     const updates: Record<string, unknown> = {};
     let expectedQueryChanged = false;
+    const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : existing.requiredTables ?? [];
+    if (Array.isArray(req.body?.requiredTables)) updates.requiredTables = requiredTables;
 
     for (const field of ["title", "description", "expectedQuery"]) {
       if (typeof req.body?.[field] === "string") {
@@ -335,16 +401,16 @@ router.patch("/tasks/:id", async (req, res) => {
     if (typeof req.body?.isActive === "boolean") updates.isActive = req.body.isActive;
 
     if (expectedQueryChanged) {
-      const expected = buildTaskExpectedResult(String(updates.expectedQuery));
-      if (!expected.success) {
+      const expected = requiredTables.length ? null : buildTaskExpectedResult(String(updates.expectedQuery));
+      if (expected && !expected.success) {
         return res.status(400).json({
           success: false,
           error: "Expected SQL is invalid: " + expected.error,
         });
       }
 
-      updates.expectedColumns = expected.result.columns;
-      updates.expectedRows = expected.result.rows;
+      updates.expectedColumns = expected?.success ? expected.result.columns : null;
+      updates.expectedRows = expected?.success ? expected.result.rows : null;
     } else if (!Array.isArray(existing.expectedColumns) || !Array.isArray(existing.expectedRows)) {
       const expected = buildTaskExpectedResult(existing.expectedQuery);
       if (expected.success) {
@@ -374,6 +440,7 @@ router.patch("/tasks/:id", async (req, res) => {
         expectedQuery: task.expectedQuery,
         expectedColumns: task.expectedColumns ?? null,
         expectedRows: task.expectedRows ?? null,
+        requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
         createdAt: task.createdAt,
