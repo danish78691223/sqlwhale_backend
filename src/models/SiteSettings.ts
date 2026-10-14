@@ -10,6 +10,7 @@ const MaintenanceSchema = new Schema({
 const SiteSettingsSchema = new Schema({
   key: { type: String, required: true, unique: true, index: true },
   maintenance: { type: MaintenanceSchema, default: () => ({}) },
+  razorpayPlanId: { type: String, default: null },
 }, { timestamps: true, collection: "site_settings" });
 
 export type SiteSettingsDocument = InferSchemaType<typeof SiteSettingsSchema> & {
