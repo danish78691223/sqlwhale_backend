@@ -203,10 +203,70 @@ router.post("/bargain/accept", async (req, res) => {
   }
 });
 
+router.post("/fixed-order", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
+    if (req.body?.termsAccepted !== true || req.body?.refundPolicyAccepted !== true) {
+      return res.status(400).json({
+        success: false,
+        error: "Accept the Terms & Conditions and Refund/Cancellation Policy before proceeding.",
+      });
+    }
+    if (user.currentPlan === "SQLWhale Premium") {
+      return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
+    }
+    if (!razorpayCredentials()) {
+      return res.status(503).json({
+        success: false,
+        error: "Payments are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to Render.",
+      });
+    }
+
+    const amountPaise = 4900; // ₹49 one-time payment
+    const order = await razorpayRequest<{ id: string; amount: number; currency: string }>("/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: amountPaise,
+        currency: CURRENCY,
+        receipt: "sw49_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex"),
+        notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", purchaseType: "fixed_49", billingType: "one_time" },
+      }),
+    });
+
+    const consentAt = new Date();
+    await SubscriptionPayment.create({
+      localUserId: user.localUserId,
+      orderId: order.id,
+      amountPaise,
+      currency: CURRENCY,
+      status: "created",
+      plan: "SQLWhale Premium",
+      purchaseType: "fixed_49",
+      termsAcceptedAt: consentAt,
+      refundPolicyAcceptedAt: consentAt,
+    });
+
+    res.status(201).json({
+      success: true,
+      order: { id: order.id, amount: order.amount, currency: order.currency },
+      keyId: process.env.RAZORPAY_KEY_ID?.trim(),
+      plan: "SQLWhale Premium ₹49 Plan (one-time payment)",
+    });
+  } catch (error: any) {
+    console.error("SQLWhale ₹49 order error:", error?.message || error);
+    res.status(500).json({ success: false, error: "Unable to create a Razorpay order. Please try again." });
+  }
+});
+
 router.post("/order", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
+    if (req.body?.termsAccepted !== true || req.body?.refundPolicyAccepted !== true) {
+      return res.status(400).json({ success: false, error: "Accept the Terms & Conditions and Refund/Cancellation Policy before proceeding." });
+    }
     if (user.currentPlan === "SQLWhale Premium") {
       return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
     }
