@@ -34,6 +34,7 @@ const MonthlySubscriptionSchema = new Schema({
   currentPeriodEnd: { type: Date, default: null },
   termsAcceptedAt: { type: Date, required: true },
   refundPolicyAcceptedAt: { type: Date, required: true },
+  recurringConsentAt: { type: Date, required: true },
   activatedAt: { type: Date, default: null },
   lastPaymentAt: { type: Date, default: null },
 }, { timestamps: true, collection: "monthly_subscriptions" });
