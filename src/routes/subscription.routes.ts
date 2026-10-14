@@ -79,7 +79,7 @@ router.get("/status", async (req, res) => {
     const monthly = await MonthlySubscription.findOne({ localUserId: user.localUserId })
       .sort({ createdAt: -1 }).lean().exec() as any;
 
-    const recurringActive = Boolean(monthly && ["active", "authenticated"].includes(monthly.status));
+    const recurringActive = Boolean(monthly && monthly.status === "active");
     const subscribed = Boolean(payment) || (monthly ? recurringActive : user.currentPlan === "SQLWhale Premium");
 
     // Keep legacy one-time premium purchases valid. A recurring-only account loses
@@ -378,11 +378,11 @@ router.post("/verify-subscription", async (req, res) => {
     }>("/payments/" + encodeURIComponent(paymentId));
     if (
       payment.subscription_id !== subscriptionId ||
-      !["captured", "authorized"].includes(payment.status) ||
+      payment.status !== "captured" ||
       Number(payment.amount) !== 4900 ||
       payment.currency !== CURRENCY
     ) {
-      return res.status(400).json({ success: false, verified: false, error: "The initial subscription payment does not match the ₹49/month plan." });
+      return res.status(400).json({ success: false, verified: false, error: "The initial subscription payment must be captured and match the ₹49/month plan." });
     }
 
     const remote = await razorpayRequest<{
@@ -393,12 +393,20 @@ router.post("/verify-subscription", async (req, res) => {
       current_end?: number | null;
     }>("/subscriptions/" + encodeURIComponent(subscriptionId));
 
-    if (remote.plan_id !== saved.planId || !["active", "authenticated"].includes(remote.status)) {
-      return res.status(409).json({
-        success: false,
+    if (remote.plan_id !== saved.planId || remote.status !== "active") {
+      // Keep proof of the successful authorization payment so retries are idempotent,
+      // but do not grant Premium until Razorpay actually activates the subscription.
+      saved.paymentId = paymentId;
+      saved.lastPaymentAt = payment.created_at ? new Date(payment.created_at * 1000) : new Date();
+      saved.status = remote.status || saved.status;
+      if (typeof remote.current_end === "number") saved.currentPeriodEnd = new Date(remote.current_end * 1000);
+      await saved.save();
+      return res.json({
+        success: true,
         verified: true,
         subscribed: false,
-        error: "Razorpay has not activated the monthly subscription yet. Please wait a moment and check again.",
+        pendingActivation: true,
+        message: "Payment authorization was verified. Premium will activate once Razorpay confirms the subscription.",
       });
     }
 
@@ -512,7 +520,7 @@ router.post("/webhook", async (req, res) => {
     await saved.save();
 
     const legacyPaid = await SubscriptionPayment.findOne({ localUserId: saved.localUserId, status: "paid" }).select("_id").lean().exec();
-    const accessActive = ["active", "authenticated"].includes(nextStatus);
+    const accessActive = nextStatus === "active";
     await User.updateOne(
       { localUserId: saved.localUserId },
       { $set: { currentPlan: accessActive || legacyPaid ? "SQLWhale Premium" : "Starter" } },
