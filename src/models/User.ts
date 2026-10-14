@@ -7,6 +7,10 @@ const UserSchema = new Schema({
   passwordHash: { type: String, required: true },
   role: { type: String, default: "user" },
   currentPlan: { type: String, default: "Starter" },
+  termsAcceptedAt: { type: Date, default: null },
+  privacyPolicyAcceptedAt: { type: Date, default: null },
+  termsVersion: { type: String, default: null },
+  privacyPolicyVersion: { type: String, default: null },
 }, { timestamps: true, collection: "users" });
 
 export type UserDocument = InferSchemaType<typeof UserSchema> & { _id: mongoose.Types.ObjectId };
