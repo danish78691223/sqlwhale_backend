@@ -258,8 +258,15 @@ router.post("/fixed-order", async (req, res) => {
       plan = await razorpayRequest("/plans/" + encodeURIComponent(planId));
     } catch (error: any) {
       const message = String(error?.message || "");
+      const mode = credentials.keyId.startsWith("rzp_test_") ? "Test Mode" : "Live Mode";
+      if (message.toLowerCase().includes("authentication failed") || message.includes("status 401")) {
+        console.error("Razorpay rejected the API credentials during plan lookup. Check the RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET pair and mode:", mode);
+        return res.status(502).json({
+          success: false,
+          error: "Razorpay rejected the API credentials. In Render, set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET from the same " + mode + " API key pair. Do not mix Test and Live keys. If the secret was lost, generate a fresh key pair and update both values, then redeploy.",
+        });
+      }
       if (message.includes("status 404")) {
-        const mode = credentials.keyId.startsWith("rzp_test_") ? "Test Mode" : "Live Mode";
         console.warn("Razorpay plan lookup returned 404. Check RAZORPAY_PLAN_ID and key mode:", mode);
         return res.status(400).json({
           success: false,
