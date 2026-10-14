@@ -253,11 +253,36 @@ router.post("/fixed-order", async (req, res) => {
       });
     }
 
-    const existing = await MonthlySubscription.findOne({
+    const plan: any = await razorpayRequest("/plans/" + encodeURIComponent(planId));
+    const planAmount = Number(plan?.item?.amount);
+    const planCurrency = String(plan?.item?.currency || "").toUpperCase();
+    if (
+      plan?.id !== planId ||
+      plan?.period !== "monthly" ||
+      Number(plan?.interval) !== 1 ||
+      planAmount !== 4900 ||
+      planCurrency !== "INR"
+    ) {
+      return res.status(503).json({
+        success: false,
+        error: "RAZORPAY_PLAN_ID must point to an active INR ₹49 monthly plan (amount 4900 paise, period monthly, interval 1).",
+      });
+    }
+
+    const existing: any = await MonthlySubscription.findOne({
       localUserId: user.localUserId,
       status: { $in: ["created", "authenticated", "active", "pending"] },
-    }).lean().exec() as any;
+    }).sort({ createdAt: -1 }).exec();
     if (existing) {
+      if (existing.status === "created" && existing.planId === planId) {
+        return res.status(200).json({
+          success: true,
+          subscriptionId: existing.subscriptionId,
+          keyId: credentials.keyId,
+          plan: "SQLWhale Premium · ₹49/month",
+          reused: true,
+        });
+      }
       return res.status(409).json({
         success: false,
         error: "A monthly subscription is already active or being processed for this account.",
