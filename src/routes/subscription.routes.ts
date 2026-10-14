@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Router, type Request, type Response } from "express";
 import { getCurrentUser } from "../services/mongoAuth";
-import { BargainState, SubscriptionPayment } from "../models/SubscriptionPayment";
+import { BargainState, MonthlySubscription, SubscriptionPayment } from "../models/SubscriptionPayment";
 import User from "../models/User";
 
 const router = Router();
@@ -48,6 +48,20 @@ async function requireUser(req: Request, res: Response) {
   return user as any;
 }
 
+async function syncMonthlyAccess(localUserId: string): Promise<boolean> {
+  const [legacyPaid, monthly] = await Promise.all([
+    SubscriptionPayment.findOne({ localUserId, status: "paid" }).select("_id").lean().exec(),
+    MonthlySubscription.findOne({ localUserId }).sort({ createdAt: -1 }).lean().exec() as any,
+  ]);
+  const monthlyActive = Boolean(monthly && ["active", "authenticated"].includes(monthly.status));
+  const entitled = Boolean(legacyPaid) || monthlyActive;
+  await User.updateOne(
+    { localUserId },
+    { $set: { currentPlan: entitled ? "SQLWhale Premium" : "Starter" } },
+  ).exec();
+  return entitled;
+}
+
 function publicBargain(state: any) {
   return {
     sessionId: String(state._id),
@@ -73,14 +87,34 @@ router.get("/status", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
+
     const payment = await SubscriptionPayment.findOne({ localUserId: user.localUserId, status: "paid" })
       .sort({ verifiedAt: -1 }).lean().exec() as any;
-    const subscribed = Boolean(payment) || user.currentPlan === "SQLWhale Premium";
+    const monthly = await MonthlySubscription.findOne({ localUserId: user.localUserId })
+      .sort({ createdAt: -1 }).lean().exec() as any;
+
+    const recurringActive = Boolean(monthly && ["active", "authenticated"].includes(monthly.status));
+    const subscribed = Boolean(payment) || (monthly ? recurringActive : user.currentPlan === "SQLWhale Premium");
+
+    // Keep legacy one-time premium purchases valid. A recurring-only account loses
+    // Premium access once Razorpay reports a terminal or inactive subscription state.
+    if (monthly && !payment) {
+      await User.updateOne(
+        { localUserId: user.localUserId },
+        { $set: { currentPlan: recurringActive ? "SQLWhale Premium" : "Starter" } },
+      ).exec();
+    }
+
     res.json({
       success: true,
       subscribed,
-      plan: subscribed ? (payment?.plan || user.currentPlan) : null,
-      paidAt: payment?.verifiedAt ?? null,
+      plan: recurringActive ? "SQLWhale Premium · ₹49/month" : (subscribed ? (payment?.plan || user.currentPlan) : null),
+      paidAt: payment?.verifiedAt ?? monthly?.lastPaymentAt ?? null,
+      recurring: recurringActive,
+      subscriptionId: recurringActive ? monthly.subscriptionId : null,
+      subscriptionStatus: monthly?.status ?? null,
+      cancelAtCycleEnd: Boolean(monthly?.cancelAtCycleEnd),
+      currentPeriodEnd: monthly?.currentPeriodEnd ?? null,
     });
   } catch (error) {
     console.error("Subscription status error:", error);
@@ -217,46 +251,265 @@ router.post("/fixed-order", async (req, res) => {
     if (user.currentPlan === "SQLWhale Premium") {
       return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
     }
-    if (!razorpayCredentials()) {
+
+    const credentials = razorpayCredentials();
+    if (!credentials) {
       return res.status(503).json({
         success: false,
         error: "Payments are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to Render.",
       });
     }
+    const planId = process.env.RAZORPAY_PLAN_ID?.trim();
+    if (!planId) {
+      return res.status(503).json({
+        success: false,
+        error: "The ₹49 monthly plan is not configured. Add RAZORPAY_PLAN_ID to Render after creating the monthly plan in Razorpay Dashboard.",
+      });
+    }
 
-    const amountPaise = 4900; // ₹49 one-time payment
-    const order = await razorpayRequest<{ id: string; amount: number; currency: string }>("/orders", {
+    const existing = await MonthlySubscription.findOne({
+      localUserId: user.localUserId,
+      status: { $in: ["created", "authenticated", "active", "pending"] },
+    }).lean().exec() as any;
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: "A monthly subscription is already active or being processed for this account.",
+      });
+    }
+
+    const remote = await razorpayRequest<{
+      id: string;
+      plan_id: string;
+      status: string;
+      current_end?: number | null;
+    }>("/subscriptions", {
       method: "POST",
       body: JSON.stringify({
-        amount: amountPaise,
-        currency: CURRENCY,
-        receipt: "sw49_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex"),
-        notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", purchaseType: "fixed_49", billingType: "one_time" },
+        plan_id: planId,
+        total_count: 120,
+        quantity: 1,
+        customer_notify: 1,
+        notes: {
+          localUserId: user.localUserId,
+          plan: "SQLWhale Premium",
+          purchaseType: "monthly_49",
+        },
       }),
     });
 
     const consentAt = new Date();
-    await SubscriptionPayment.create({
+    const subscription = await MonthlySubscription.create({
       localUserId: user.localUserId,
-      orderId: order.id,
-      amountPaise,
-      currency: CURRENCY,
-      status: "created",
-      plan: "SQLWhale Premium",
-      purchaseType: "fixed_49",
+      subscriptionId: remote.id,
+      planId,
+      status: remote.status || "created",
+      cancelAtCycleEnd: false,
+      currentPeriodEnd: typeof remote.current_end === "number" ? new Date(remote.current_end * 1000) : null,
       termsAcceptedAt: consentAt,
       refundPolicyAcceptedAt: consentAt,
     });
 
     res.status(201).json({
       success: true,
-      order: { id: order.id, amount: order.amount, currency: order.currency },
-      keyId: process.env.RAZORPAY_KEY_ID?.trim(),
-      plan: "SQLWhale Premium ₹49 Plan (one-time payment)",
+      subscriptionId: subscription.subscriptionId,
+      keyId: credentials.keyId,
+      plan: "SQLWhale Premium · ₹49/month",
     });
   } catch (error: any) {
-    console.error("SQLWhale ₹49 order error:", error?.message || error);
-    res.status(500).json({ success: false, error: "Unable to create a Razorpay order. Please try again." });
+    console.error("SQLWhale ₹49 monthly subscription error:", error?.message || error);
+    res.status(500).json({ success: false, error: "Unable to create a Razorpay subscription. Please try again." });
+  }
+});
+
+router.post("/verify-subscription", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
+    const subscriptionId = typeof req.body?.razorpay_subscription_id === "string" ? req.body.razorpay_subscription_id : "";
+    const paymentId = typeof req.body?.razorpay_payment_id === "string" ? req.body.razorpay_payment_id : "";
+    const signature = typeof req.body?.razorpay_signature === "string" ? req.body.razorpay_signature : "";
+    if (!subscriptionId || !paymentId || !signature) {
+      return res.status(400).json({ success: false, error: "Missing Razorpay subscription verification details." });
+    }
+
+    const saved: any = await MonthlySubscription.findOne({
+      subscriptionId,
+      localUserId: user.localUserId,
+    }).exec();
+    if (!saved) return res.status(404).json({ success: false, error: "Subscription not found for this account." });
+    if (saved.status === "active" && saved.paymentId === paymentId) {
+      return res.json({ success: true, verified: true, subscribed: true, recurring: true, message: "Your monthly subscription is active." });
+    }
+
+    const credentials = razorpayCredentials();
+    if (!credentials) return res.status(503).json({ success: false, error: "Subscription verification is not configured." });
+
+    // Razorpay subscription signature format: payment_id + "|" + subscription_id.
+    const expected = crypto.createHmac("sha256", credentials.keySecret)
+      .update(paymentId + "|" + subscriptionId)
+      .digest("hex");
+    const actualBuffer = Buffer.from(signature, "hex");
+    const expectedBuffer = Buffer.from(expected, "hex");
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+      return res.status(400).json({ success: false, verified: false, error: "Subscription signature verification failed." });
+    }
+
+    const payment = await razorpayRequest<{
+      id: string;
+      subscription_id?: string | null;
+      status: string;
+      amount: number;
+      currency: string;
+      created_at?: number;
+    }>("/payments/" + encodeURIComponent(paymentId));
+    if (
+      payment.subscription_id !== subscriptionId ||
+      !["captured", "authorized"].includes(payment.status) ||
+      Number(payment.amount) !== 4900 ||
+      payment.currency !== CURRENCY
+    ) {
+      return res.status(400).json({ success: false, verified: false, error: "The initial subscription payment does not match the ₹49/month plan." });
+    }
+
+    const remote = await razorpayRequest<{
+      id: string;
+      plan_id: string;
+      status: string;
+      current_start?: number | null;
+      current_end?: number | null;
+    }>("/subscriptions/" + encodeURIComponent(subscriptionId));
+
+    if (remote.plan_id !== saved.planId || !["active", "authenticated"].includes(remote.status)) {
+      return res.status(409).json({
+        success: false,
+        verified: true,
+        subscribed: false,
+        error: "Razorpay has not activated the monthly subscription yet. Please wait a moment and check again.",
+      });
+    }
+
+    saved.paymentId = paymentId;
+    saved.status = remote.status;
+    saved.activatedAt = saved.activatedAt || new Date();
+    saved.lastPaymentAt = payment.created_at ? new Date(payment.created_at * 1000) : new Date();
+    if (typeof remote.current_end === "number") saved.currentPeriodEnd = new Date(remote.current_end * 1000);
+    await saved.save();
+    await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
+
+    res.json({
+      success: true,
+      verified: true,
+      subscribed: true,
+      recurring: true,
+      plan: "SQLWhale Premium · ₹49/month",
+      message: "Payment verified and the ₹49/month subscription is active.",
+    });
+  } catch (error: any) {
+    console.error("Monthly subscription verification error:", error?.message || error);
+    res.status(500).json({ success: false, error: "Unable to verify subscription. Contact support if a payment was deducted." });
+  }
+});
+
+router.post("/monthly/cancel", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
+    const subscriptionId = typeof req.body?.subscriptionId === "string" ? req.body.subscriptionId : "";
+    if (!subscriptionId) return res.status(400).json({ success: false, error: "Subscription ID is required." });
+
+    const saved: any = await MonthlySubscription.findOne({ subscriptionId, localUserId: user.localUserId }).exec();
+    if (!saved) return res.status(404).json({ success: false, error: "Subscription not found for this account." });
+    if (saved.cancelAtCycleEnd || ["cancelled", "completed"].includes(saved.status)) {
+      return res.json({ success: true, message: "Future renewal cancellation has already been requested." });
+    }
+
+    const remote = await razorpayRequest<{
+      id: string;
+      status: string;
+      current_end?: number | null;
+    }>("/subscriptions/" + encodeURIComponent(subscriptionId) + "/cancel", {
+      method: "POST",
+      body: JSON.stringify({ cancel_at_cycle_end: true }),
+    });
+
+    saved.cancelAtCycleEnd = true;
+    if (remote.status) saved.status = remote.status;
+    if (typeof remote.current_end === "number") saved.currentPeriodEnd = new Date(remote.current_end * 1000);
+    await saved.save();
+
+    res.json({
+      success: true,
+      cancelAtCycleEnd: true,
+      currentPeriodEnd: saved.currentPeriodEnd,
+      message: "Future renewals are scheduled to stop at the end of the current billing period. Premium access remains available until then.",
+    });
+  } catch (error: any) {
+    console.error("Monthly subscription cancellation error:", error?.message || error);
+    res.status(500).json({ success: false, error: "Unable to request cancellation. Please try again or contact support." });
+  }
+});
+
+router.post("/webhook", async (req, res) => {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
+  const signatureHeader = req.headers["x-razorpay-signature"];
+  const signature = typeof signatureHeader === "string" ? signatureHeader : "";
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+
+  if (!secret) return res.status(503).json({ success: false, error: "Razorpay webhook secret is not configured." });
+  if (!rawBody || !signature) return res.status(400).json({ success: false, error: "Missing webhook signature or raw request body." });
+
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const actualBuffer = Buffer.from(signature, "hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    return res.status(400).json({ success: false, error: "Invalid webhook signature." });
+  }
+
+  try {
+    const event = typeof req.body?.event === "string" ? req.body.event : "";
+    const subscriptionEntity = req.body?.payload?.subscription?.entity;
+    const subscriptionId = typeof subscriptionEntity?.id === "string" ? subscriptionEntity.id : "";
+    if (!subscriptionId) return res.json({ success: true, received: true });
+
+    const saved: any = await MonthlySubscription.findOne({ subscriptionId }).exec();
+    if (!saved) return res.json({ success: true, received: true });
+
+    const statusByEvent: Record<string, string> = {
+      "subscription.authenticated": "authenticated",
+      "subscription.activated": "active",
+      "subscription.charged": "active",
+      "subscription.pending": "pending",
+      "subscription.halted": "halted",
+      "subscription.cancelled": "cancelled",
+      "subscription.completed": "completed",
+    };
+    const nextStatus = statusByEvent[event];
+    if (!nextStatus) return res.json({ success: true, received: true });
+
+    saved.status = nextStatus;
+    if (typeof subscriptionEntity.current_end === "number") saved.currentPeriodEnd = new Date(subscriptionEntity.current_end * 1000);
+    const paymentEntity = req.body?.payload?.payment?.entity;
+    if (event === "subscription.charged" && paymentEntity?.id) {
+      saved.paymentId = paymentEntity.id;
+      saved.lastPaymentAt = typeof paymentEntity.created_at === "number" ? new Date(paymentEntity.created_at * 1000) : new Date();
+    }
+    if (event === "subscription.cancelled") saved.cancelAtCycleEnd = false;
+    await saved.save();
+
+    const legacyPaid = await SubscriptionPayment.findOne({ localUserId: saved.localUserId, status: "paid" }).select("_id").lean().exec();
+    const accessActive = ["active", "authenticated"].includes(nextStatus);
+    await User.updateOne(
+      { localUserId: saved.localUserId },
+      { $set: { currentPlan: accessActive || legacyPaid ? "SQLWhale Premium" : "Starter" } },
+    ).exec();
+
+    res.json({ success: true, received: true });
+  } catch (error) {
+    console.error("Razorpay subscription webhook failed:", error);
+    res.status(500).json({ success: false, error: "Unable to process subscription webhook." });
   }
 });
 
