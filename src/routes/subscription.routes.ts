@@ -300,7 +300,7 @@ router.post("/fixed-order", async (req, res) => {
         plan_id: planId,
         total_count: 120,
         quantity: 1,
-        customer_notify: 1,
+        customer_notify: true,
         notes: {
           localUserId: user.localUserId,
           plan: "SQLWhale Premium",
