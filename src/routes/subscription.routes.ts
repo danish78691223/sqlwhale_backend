@@ -48,20 +48,6 @@ async function requireUser(req: Request, res: Response) {
   return user as any;
 }
 
-async function syncMonthlyAccess(localUserId: string): Promise<boolean> {
-  const [legacyPaid, monthly] = await Promise.all([
-    SubscriptionPayment.findOne({ localUserId, status: "paid" }).select("_id").lean().exec(),
-    MonthlySubscription.findOne({ localUserId }).sort({ createdAt: -1 }).lean().exec() as any,
-  ]);
-  const monthlyActive = Boolean(monthly && ["active", "authenticated"].includes(monthly.status));
-  const entitled = Boolean(legacyPaid) || monthlyActive;
-  await User.updateOne(
-    { localUserId },
-    { $set: { currentPlan: entitled ? "SQLWhale Premium" : "Starter" } },
-  ).exec();
-  return entitled;
-}
-
 function publicBargain(state: any) {
   return {
     sessionId: String(state._id),
