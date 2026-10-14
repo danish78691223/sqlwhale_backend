@@ -253,7 +253,21 @@ router.post("/fixed-order", async (req, res) => {
       });
     }
 
-    const plan: any = await razorpayRequest("/plans/" + encodeURIComponent(planId));
+    let plan: any;
+    try {
+      plan = await razorpayRequest("/plans/" + encodeURIComponent(planId));
+    } catch (error: any) {
+      const message = String(error?.message || "");
+      if (message.includes("status 404")) {
+        const mode = credentials.keyId.startsWith("rzp_test_") ? "Test Mode" : "Live Mode";
+        console.warn("Razorpay plan lookup returned 404. Check RAZORPAY_PLAN_ID and key mode:", mode);
+        return res.status(400).json({
+          success: false,
+          error: "Razorpay could not find RAZORPAY_PLAN_ID. Create the ₹49/month plan in " + mode + " and use that exact plan_... ID with the matching API key pair. Test and Live plan IDs cannot be interchanged.",
+        });
+      }
+      throw error;
+    }
     const planAmount = Number(plan?.item?.amount);
     const planCurrency = String(plan?.item?.currency || "").toUpperCase();
     if (
