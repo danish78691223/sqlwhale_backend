@@ -12,10 +12,13 @@ const PaymentSchema = new Schema({
   localUserId: { type: String, required: true, index: true },
   orderId: { type: String, required: true, unique: true, index: true },
   paymentId: { type: String, default: null, index: true },
-  amountPaise: { type: Number, required: true, min: 60000 },
+  amountPaise: { type: Number, required: true, min: 4900 },
   currency: { type: String, default: "INR" },
   status: { type: String, enum: ["created", "paid", "failed"], default: "created", index: true },
   plan: { type: String, default: "SQLWhale Premium" },
+  purchaseType: { type: String, default: "bargain" },
+  termsAcceptedAt: { type: Date, default: null },
+  refundPolicyAcceptedAt: { type: Date, default: null },
   verifiedAt: { type: Date, default: null },
 }, { timestamps: true, collection: "subscription_payments" });
 
