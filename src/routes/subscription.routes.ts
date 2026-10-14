@@ -228,10 +228,10 @@ router.post("/fixed-order", async (req, res) => {
     const user = await requireUser(req, res);
     if (!user) return;
 
-    if (req.body?.termsAccepted !== true || req.body?.refundPolicyAccepted !== true) {
+    if (req.body?.termsAccepted !== true || req.body?.refundPolicyAccepted !== true || req.body?.recurringConsent !== true) {
       return res.status(400).json({
         success: false,
-        error: "Accept the Terms & Conditions and Refund/Cancellation Policy before proceeding.",
+        error: "Accept the Terms & Conditions, Refund/Cancellation Policy, and monthly billing authorization before proceeding.",
       });
     }
     if (user.currentPlan === "SQLWhale Premium") {
@@ -294,6 +294,7 @@ router.post("/fixed-order", async (req, res) => {
       currentPeriodEnd: typeof remote.current_end === "number" ? new Date(remote.current_end * 1000) : null,
       termsAcceptedAt: consentAt,
       refundPolicyAcceptedAt: consentAt,
+      recurringConsentAt: consentAt,
     });
 
     res.status(201).json({
