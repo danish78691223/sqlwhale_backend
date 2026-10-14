@@ -298,6 +298,7 @@ router.post("/order", async (req, res) => {
         notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", ...(sessionId ? { bargainSessionId: sessionId } : {}), purchaseType: direct ? "direct" : "bargain" },
       }),
     });
+    const consentAt = new Date();
     await SubscriptionPayment.create({
       localUserId: user.localUserId,
       orderId: order.id,
@@ -305,6 +306,9 @@ router.post("/order", async (req, res) => {
       currency: CURRENCY,
       status: "created",
       plan: "SQLWhale Premium",
+      purchaseType: direct ? "direct" : "bargain",
+      termsAcceptedAt: consentAt,
+      refundPolicyAcceptedAt: consentAt,
     });
     res.status(201).json({
       success: true,
