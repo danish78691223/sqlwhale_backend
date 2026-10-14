@@ -17,7 +17,7 @@ const app=express();const PORT=Number(process.env.PORT)||5000;
 async function start(){
  try{await connectMongo();initializeSchema();seedDatabase();}catch(error){console.error("Startup initialization failed:",error);process.exit(1);}
  app.use(cors({origin:process.env.FRONTEND_URL||"http://localhost:3000",credentials:true,methods:["GET","POST","PUT","DELETE","OPTIONS"],allowedHeaders:["Content-Type","Authorization"]}));
- app.use(express.json({limit:"1mb"}));app.use(express.urlencoded({extended:true}));
+ app.use(express.json({limit:"1mb",verify:(req,_res,buffer)=>{if((req as any).originalUrl?.startsWith("/api/subscription/webhook"))(req as any).rawBody=Buffer.from(buffer);}}));app.use(express.urlencoded({extended:true}));
  app.use((req:Request,_res:Response,next:NextFunction)=>{console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);next();});
  app.get("/api/health",(_req,res)=>res.json({success:true,message:"SQLWhale backend is running.",timestamp:new Date().toISOString()}));
  app.use("/api/sql",sqlRoutes);app.use("/api/tables",tableRoutes);app.use("/api/lessons",lessonRoutes);app.use("/api/auth",authRoutes);app.use("/api/tasks",taskRoutes);app.use("/api/rankings",rankingRoutes);app.use("/api/subscription",subscriptionRoutes);app.use("/api/admin",adminRoutes);
