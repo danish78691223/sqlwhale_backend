@@ -106,11 +106,13 @@ router.get("/status", async (req, res) => {
       ["active", "authenticated"].includes(String(monthly.status)),
     );
     const legacyPaid = Boolean(payment);
-    const subscribed = recurringActive || monthlyAccessUntilEnd || legacyPaid ||
+    const paymentDerivedPremium = recurringActive || monthlyAccessUntilEnd || legacyPaid ||
       (!monthly && user.currentPlan === "SQLWhale Premium");
-    const currentPlan = subscribed ? "SQLWhale Premium" : "Starter";
+    // A deliberate admin override takes precedence until a later successful
+    // payment verification clears it. This prevents status refresh from undoing support fixes.
+    const currentPlan = user.adminPlanOverride || (paymentDerivedPremium ? "SQLWhale Premium" : "Starter");
+    const subscribed = currentPlan === "SQLWhale Premium";
 
-    // Keep the stored profile plan aligned with verified payment/subscription state.
     if (user.currentPlan !== currentPlan) {
       await User.updateOne(
         { localUserId: user.localUserId },
@@ -471,7 +473,10 @@ router.post("/verify-subscription", async (req, res) => {
     saved.lastPaymentAt = payment.created_at ? new Date(payment.created_at * 1000) : new Date();
     if (typeof remote.current_end === "number") saved.currentPeriodEnd = new Date(remote.current_end * 1000);
     await saved.save();
-    await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
+    await User.updateOne(
+      { localUserId: user.localUserId },
+      { $set: { currentPlan: "SQLWhale Premium" }, $unset: { adminPlanOverride: 1 } },
+    ).exec();
 
     res.json({
       success: true,
