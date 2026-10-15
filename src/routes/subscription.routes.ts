@@ -80,27 +80,39 @@ router.get("/status", async (req, res) => {
       .sort({ createdAt: -1 }).lean().exec() as any;
 
     const recurringActive = Boolean(monthly && monthly.status === "active");
-    const subscribed = Boolean(payment) || (monthly ? recurringActive : user.currentPlan === "SQLWhale Premium");
+    const monthlyAccessUntilEnd = Boolean(
+      monthly?.cancelAtCycleEnd &&
+      monthly.currentPeriodEnd &&
+      new Date(monthly.currentPeriodEnd).getTime() > Date.now() &&
+      ["active", "authenticated"].includes(String(monthly.status)),
+    );
+    const legacyPaid = Boolean(payment);
+    const subscribed = recurringActive || monthlyAccessUntilEnd || legacyPaid ||
+      (!monthly && user.currentPlan === "SQLWhale Premium");
+    const currentPlan = subscribed ? "SQLWhale Premium" : "Starter";
 
-    // Keep legacy one-time premium purchases valid. A recurring-only account loses
-    // Premium access once Razorpay reports a terminal or inactive subscription state.
-    if (monthly && !payment) {
+    // Keep the stored profile plan aligned with verified payment/subscription state.
+    if (user.currentPlan !== currentPlan) {
       await User.updateOne(
         { localUserId: user.localUserId },
-        { $set: { currentPlan: recurringActive ? "SQLWhale Premium" : "Starter" } },
+        { $set: { currentPlan } },
       ).exec();
     }
 
     res.json({
       success: true,
       subscribed,
-      plan: recurringActive ? "SQLWhale Premium · ₹49/month" : (subscribed ? (payment?.plan || user.currentPlan) : null),
+      currentPlan,
+      plan: recurringActive || monthlyAccessUntilEnd
+        ? "SQLWhale Premium · ₹49/month"
+        : (subscribed ? (payment?.plan || currentPlan) : null),
       paidAt: payment?.verifiedAt ?? monthly?.lastPaymentAt ?? null,
-      recurring: recurringActive,
-      subscriptionId: recurringActive ? monthly.subscriptionId : null,
+      recurring: recurringActive || monthlyAccessUntilEnd,
+      subscriptionId: monthly && (recurringActive || monthlyAccessUntilEnd) ? monthly.subscriptionId : null,
       subscriptionStatus: monthly?.status ?? null,
       cancelAtCycleEnd: Boolean(monthly?.cancelAtCycleEnd),
       currentPeriodEnd: monthly?.currentPeriodEnd ?? null,
+      activationPending: Boolean(monthly && !subscribed && ["created", "authenticated", "pending"].includes(String(monthly.status))),
     });
   } catch (error) {
     console.error("Subscription status error:", error);
@@ -403,7 +415,12 @@ router.post("/verify-subscription", async (req, res) => {
       Number(payment.amount) !== 4900 ||
       payment.currency !== CURRENCY
     ) {
-      return res.status(400).json({ success: false, verified: false, error: "The initial subscription payment must be captured and match the ₹49/month plan." });
+      const mismatch = payment.subscription_id !== subscriptionId
+        ? "This payment is not linked to the selected subscription."
+        : payment.currency !== CURRENCY || Number(payment.amount) !== 4900
+          ? "The verified payment does not match ₹49 INR."
+          : "Razorpay has not marked this payment as captured yet (current status: " + String(payment.status || "unknown") + "). Wait briefly and retry status verification; do not pay again.";
+      return res.status(409).json({ success: false, verified: false, pendingCapture: payment.status !== "captured", paymentStatus: payment.status, error: mismatch });
     }
 
     const remote = await razorpayRequest<{
