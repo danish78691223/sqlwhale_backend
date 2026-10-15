@@ -76,8 +76,27 @@ router.get("/status", async (req, res) => {
 
     const payment = await SubscriptionPayment.findOne({ localUserId: user.localUserId, status: "paid" })
       .sort({ verifiedAt: -1 }).lean().exec() as any;
-    const monthly = await MonthlySubscription.findOne({ localUserId: user.localUserId })
-      .sort({ createdAt: -1 }).lean().exec() as any;
+    const monthly: any = await MonthlySubscription.findOne({ localUserId: user.localUserId })
+      .sort({ createdAt: -1 }).exec();
+
+    // Reconcile with Razorpay on each status check so a delayed/missed webhook
+    // cannot leave the profile showing Starter after Razorpay has activated the plan.
+    if (monthly && razorpayCredentials()) {
+      try {
+        const remote: any = await razorpayRequest("/subscriptions/" + encodeURIComponent(monthly.subscriptionId));
+        if (remote?.id === monthly.subscriptionId && remote?.plan_id === monthly.planId && typeof remote.status === "string") {
+          monthly.status = remote.status;
+          if (typeof remote.current_end === "number") monthly.currentPeriodEnd = new Date(remote.current_end * 1000);
+          if (typeof remote.current_start === "number" && !monthly.activatedAt && remote.status === "active") {
+            monthly.activatedAt = new Date(remote.current_start * 1000);
+          }
+          await monthly.save();
+        }
+      } catch (syncError: any) {
+        // Keep the last known status available if Razorpay is temporarily unreachable.
+        console.warn("Unable to refresh Razorpay subscription status:", syncError?.message || syncError);
+      }
+    }
 
     const recurringActive = Boolean(monthly && monthly.status === "active");
     const monthlyAccessUntilEnd = Boolean(
@@ -409,18 +428,11 @@ router.post("/verify-subscription", async (req, res) => {
       currency: string;
       created_at?: number;
     }>("/payments/" + encodeURIComponent(paymentId));
-    if (
-      payment.subscription_id !== subscriptionId ||
-      payment.status !== "captured" ||
-      Number(payment.amount) !== 4900 ||
-      payment.currency !== CURRENCY
-    ) {
-      const mismatch = payment.subscription_id !== subscriptionId
-        ? "This payment is not linked to the selected subscription."
-        : payment.currency !== CURRENCY || Number(payment.amount) !== 4900
-          ? "The verified payment does not match ₹49 INR."
-          : "Razorpay has not marked this payment as captured yet (current status: " + String(payment.status || "unknown") + "). Wait briefly and retry status verification; do not pay again.";
-      return res.status(409).json({ success: false, verified: false, pendingCapture: payment.status !== "captured", paymentStatus: payment.status, error: mismatch });
+    // The checkout signature binds this payment ID to this subscription. Razorpay's
+    // subscription state is authoritative for recurring access; its first UPI AutoPay
+    // payment can be authorized before it is shown as captured in the Payments API.
+    if (payment.subscription_id && payment.subscription_id !== subscriptionId) {
+      return res.status(400).json({ success: false, verified: false, error: "This payment is linked to a different Razorpay subscription." });
     }
 
     const remote = await razorpayRequest<{
