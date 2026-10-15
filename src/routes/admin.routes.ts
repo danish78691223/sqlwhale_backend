@@ -34,6 +34,7 @@ function cleanUser(user: any) {
     email: user.email,
     role: user.role,
     currentPlan: user.currentPlan,
+    adminPlanOverride: user.adminPlanOverride ?? null,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -83,7 +84,7 @@ router.get("/users", async (req, res) => {
       : {};
 
     const users = await User.find(filter)
-      .select("_id localUserId name email role currentPlan createdAt updatedAt")
+      .select("_id localUserId name email role currentPlan adminPlanOverride createdAt updatedAt")
       .sort({ createdAt: -1 })
       .limit(500)
       .lean()
@@ -112,6 +113,14 @@ router.patch("/users/:id", async (req, res) => {
         if (value) updates[field] = field === "email" ? value.toLowerCase() : value;
       }
     }
+
+    if (updates.currentPlan && !["Starter", "SQLWhale Premium"].includes(updates.currentPlan)) {
+      return res.status(400).json({ success: false, error: "Plan must be Starter or SQLWhale Premium." });
+    }
+
+    // Admin plan changes are explicit overrides for support cases where a
+    // successful payment did not synchronize to the user's profile.
+    if (updates.currentPlan) updates.adminPlanOverride = updates.currentPlan;
 
     if (updates.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(updates.email)) {
       return res.status(400).json({ success: false, error: "Enter a valid email address." });
