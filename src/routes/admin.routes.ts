@@ -122,7 +122,7 @@ router.patch("/users/:id", async (req, res) => {
     // successful payment did not synchronize to the user's profile.
     if (updates.currentPlan) updates.adminPlanOverride = updates.currentPlan;
 
-    if (updates.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(updates.email)) {
+    if (updates.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email)) {
       return res.status(400).json({ success: false, error: "Enter a valid email address." });
     }
     if (updates.role && !["user", "admin"].includes(updates.role)) {
