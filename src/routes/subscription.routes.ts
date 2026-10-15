@@ -443,9 +443,13 @@ router.post("/verify-subscription", async (req, res) => {
       current_end?: number | null;
     }>("/subscriptions/" + encodeURIComponent(subscriptionId));
 
-    if (remote.plan_id !== saved.planId || remote.status !== "active") {
-      // Keep proof of the successful authorization payment so retries are idempotent,
-      // but do not grant Premium until Razorpay actually activates the subscription.
+    if (remote.plan_id !== saved.planId) {
+      return res.status(400).json({ success: false, verified: false, error: "Razorpay subscription plan does not match the expected ₹49/month plan." });
+    }
+
+    if (remote.status !== "active") {
+      // Keep proof of the signed payment while Razorpay activates the mandate.
+      // Do not grant Premium until the server confirms the subscription is active.
       saved.paymentId = paymentId;
       saved.lastPaymentAt = payment.created_at ? new Date(payment.created_at * 1000) : new Date();
       saved.status = remote.status || saved.status;
@@ -456,7 +460,8 @@ router.post("/verify-subscription", async (req, res) => {
         verified: true,
         subscribed: false,
         pendingActivation: true,
-        message: "Payment authorization was verified. Premium will activate once Razorpay confirms the subscription.",
+        subscriptionStatus: saved.status,
+        message: "Payment was verified. Premium will activate once Razorpay confirms the subscription is active. You do not need to pay again.",
       });
     }
 
