@@ -6,7 +6,8 @@ const UserSchema = new Schema({
   email: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true },
   role: { type: String, default: "user" },
-  currentPlan: { type: String, default: "Starter" },
+  currentPlan: { type: String, enum: ["Starter", "SQLWhale Premium"], default: "Starter" },
+  adminPlanOverride: { type: String, enum: ["Starter", "SQLWhale Premium", null], default: null },
 }, { timestamps: true, collection: "users" });
 
 export type UserDocument = InferSchemaType<typeof UserSchema> & { _id: mongoose.Types.ObjectId };
