@@ -390,7 +390,7 @@ router.patch("/tasks/:id", async (req, res) => {
 
     const updates: Record<string, unknown> = {};
     let expectedQueryChanged = false;
-    const taskType = req.body?.taskType === "setup" || (typeof req.body?.expectedQuery === "string" && /^(?:CREATE\\s+TABLE|INSERT\\s+INTO)\\b/i.test(req.body.expectedQuery.trim())) ? "setup" : (req.body?.taskType === "query" ? "query" : existing.taskType ?? "query");
+    const taskType = req.body?.taskType === "setup" || (typeof req.body?.expectedQuery === "string" && /^(?:CREATE\s+TABLE|INSERT\s+INTO)\b/i.test(req.body.expectedQuery.trim())) ? "setup" : (req.body?.taskType === "query" ? "query" : existing.taskType ?? "query");
     if (req.body?.taskType === "setup" || req.body?.taskType === "query") updates.taskType = taskType;
     const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : existing.requiredTables ?? [];
     if (Array.isArray(req.body?.requiredTables)) updates.requiredTables = requiredTables;
