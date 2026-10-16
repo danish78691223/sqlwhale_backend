@@ -388,18 +388,18 @@ router.post("/:id/check", async (req, res) => {
     }
 
     if (task.taskType === "setup" || task.expectedSetup) {
-      const expectedSetup = task.expectedSetup;
+      let expectedSetup = task.expectedSetup;
       if (!expectedSetup?.tables?.length) {
         const builtSetup = buildTaskExpectedSetup(task.expectedQuery);
         if (!builtSetup.success) {
           return res.status(500).json({ success: false, error: "Unable to validate this setup task. Ask an admin to edit and save it again." });
         }
-        task.expectedSetup = builtSetup.setup;
+        expectedSetup = builtSetup.setup;
       }
       const workspace = await resolveWorkspace(req, res, user.localUserId);
       const startedAt = Date.now();
       const result = runWithDatabase(workspace.database, () =>
-        executeAndGradeSetup(workspace.database, submittedQuery, task.expectedSetup)
+        executeAndGradeSetup(workspace.database, submittedQuery, expectedSetup)
       );
       const executionTimeMs = Date.now() - startedAt;
       await saveQueryHistory(user.localUserId, {
