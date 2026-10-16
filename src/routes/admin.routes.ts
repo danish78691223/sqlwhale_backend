@@ -8,7 +8,7 @@ import SiteSettings, { type SiteSettingsDocument } from "../models/SiteSettings"
 import Task from "../models/Task";
 import TaskTableTemplate from "../models/TaskTableTemplate";
 import TaskCompletion from "../models/TaskCompletion";
-import { buildTaskExpectedResult } from "../services/taskGrading.service";
+import { buildTaskExpectedResult, buildTaskExpectedSetup } from "../services/taskGrading.service";
 import { getCurrentUser, publicUser } from "../services/mongoAuth";
 
 const router = Router();
