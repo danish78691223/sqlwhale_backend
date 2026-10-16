@@ -118,6 +118,31 @@ router.post("/:id/start", async (req, res) => {
     const task: any = await Task.findOne({ _id: req.params.id, isActive: true }).lean().exec();
     if (!task) return res.status(404).json({ success: false, error: "Task not found." });
 
+    // Server-side task sequence enforcement. Tasks are ordered oldest-first;
+    // newly published tasks join the end of the path.
+    const sequence = await Task.find({ isActive: true })
+      .sort({ createdAt: 1, _id: 1 })
+      .select("_id")
+      .lean()
+      .exec();
+    const completedSet = new Set(
+      (await TaskCompletion.find({
+        localUserId: user.localUserId,
+        taskId: { $in: sequence.map((item: any) => item._id) },
+      }).select("taskId").lean().exec())
+        .map((item: any) => String(item.taskId))
+    );
+    const nextTask = sequence.find((item: any) => !completedSet.has(String(item._id)));
+    if (nextTask && String(nextTask._id) !== String(task._id)) {
+      return res.status(409).json({
+        success: false,
+        code: "TASK_LOCKED",
+        error: "Complete the previous task first to unlock this task.",
+        unlockedTaskId: String(nextTask._id),
+      });
+    }
+
+
     if (Array.isArray(task.requiredTables) && task.requiredTables.length) {
       const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
       runWithDatabase(taskWorkspace.database, () => provisionTaskTables(task, taskWorkspace.database));
@@ -319,6 +344,30 @@ router.post("/:id/check", async (req, res) => {
       return res.status(404).json({ success: false, error: "Task not found." });
     }
 
+
+    // Server-side task sequence enforcement. Tasks are ordered oldest-first;
+    // newly published tasks join the end of the path.
+    const sequence = await Task.find({ isActive: true })
+      .sort({ createdAt: 1, _id: 1 })
+      .select("_id")
+      .lean()
+      .exec();
+    const completedSet = new Set(
+      (await TaskCompletion.find({
+        localUserId: user.localUserId,
+        taskId: { $in: sequence.map((item: any) => item._id) },
+      }).select("taskId").lean().exec())
+        .map((item: any) => String(item.taskId))
+    );
+    const nextTask = sequence.find((item: any) => !completedSet.has(String(item._id)));
+    if (nextTask && String(nextTask._id) !== String(task._id)) {
+      return res.status(409).json({
+        success: false,
+        code: "TASK_LOCKED",
+        error: "Complete the previous task first to unlock this task.",
+        unlockedTaskId: String(nextTask._id),
+      });
+    }
     const alreadyCompleted = await TaskCompletion.exists({
       localUserId: user.localUserId,
       taskId: task._id,
@@ -470,7 +519,7 @@ router.post("/:id/check", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const tasks = await Task.find({ isActive: true })
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: 1, _id: 1 })
       .lean()
       .exec();
 
@@ -482,23 +531,33 @@ router.get("/", async (req, res) => {
               localUserId: user.localUserId,
               taskId: { $in: tasks.map((task: any) => task._id) },
             })
+              .select("taskId")
               .lean()
               .exec()
           ).map((item: any) => String(item.taskId))
         )
       : new Set<string>();
 
-    res.json({
-      success: true,
-      tasks: tasks.map((task: any) => ({
-        id: String(task._id),
+    let nextUnlocked = Boolean(user);
+    const taskSummaries = tasks.map((task: any, index: number) => {
+      const id = String(task._id);
+      const completed = completedIds.has(id);
+      const unlocked = completed || nextUnlocked;
+      if (!completed && unlocked) nextUnlocked = false;
+      return {
+        id,
         title: task.title,
         description: task.description,
         difficulty: task.difficulty,
         createdAt: task.createdAt,
-        completed: completedIds.has(String(task._id)),
-      })),
+        completed,
+        unlocked,
+        locked: !unlocked,
+        order: index + 1,
+      };
     });
+
+    res.json({ success: true, tasks: taskSummaries });
   } catch (error) {
     console.error("Tasks read error:", error);
     res.status(500).json({ success: false, error: "Unable to load tasks." });
