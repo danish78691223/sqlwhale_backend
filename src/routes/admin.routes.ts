@@ -303,6 +303,7 @@ router.get("/tasks", async (req, res) => {
         expectedQuery: task.expectedQuery,
         expectedColumns: task.expectedColumns ?? null,
         expectedRows: task.expectedRows ?? null,
+        taskType: task.taskType ?? "query",
         requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
@@ -327,6 +328,7 @@ router.post("/tasks", async (req, res) => {
     const difficulty = typeof req.body?.difficulty === "string" ? req.body.difficulty : "Easy";
     const isActive = req.body?.isActive !== false;
     const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : [];
+    const taskType = req.body?.taskType === "setup" || /^(?:CREATE\s+TABLE|INSERT\s+INTO)\b/i.test(expectedQuery) ? "setup" : "query";
 
     if (!title || !description || !expectedQuery) {
       return res.status(400).json({ success: false, error: "Task title, description and expected SQL query are required." });
@@ -335,7 +337,7 @@ router.post("/tasks", async (req, res) => {
       return res.status(400).json({ success: false, error: "Difficulty must be Easy, Medium or Hard." });
     }
 
-    const expected = requiredTables.length ? null : buildTaskExpectedResult(expectedQuery);
+    const expected = taskType === "setup" ? buildTaskExpectedSetup(expectedQuery) : requiredTables.length ? null : buildTaskExpectedResult(expectedQuery);
     if (expected && !expected.success) {
       return res.status(400).json({
         success: false,
@@ -347,8 +349,10 @@ router.post("/tasks", async (req, res) => {
       title,
       description,
       expectedQuery,
-      expectedColumns: expected?.success ? expected.result.columns : null,
-      expectedRows: expected?.success ? expected.result.rows : null,
+      expectedColumns: expected?.success && "result" in expected ? expected.result.columns : null,
+      expectedRows: taskType === "query" && expected?.success && "result" in expected ? expected.result.rows : null,
+      taskType,
+      expectedSetup: taskType === "setup" && expected?.success && "setup" in expected ? expected.setup : null,
       requiredTables,
       difficulty,
       isActive,
@@ -364,6 +368,7 @@ router.post("/tasks", async (req, res) => {
         expectedQuery: task.expectedQuery,
         expectedColumns: task.expectedColumns,
         expectedRows: task.expectedRows,
+        taskType: task.taskType ?? "query",
         requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
@@ -389,6 +394,8 @@ router.patch("/tasks/:id", async (req, res) => {
 
     const updates: Record<string, unknown> = {};
     let expectedQueryChanged = false;
+    const taskType = req.body?.taskType === "setup" || (typeof req.body?.expectedQuery === "string" && /^(?:CREATE\s+TABLE|INSERT\s+INTO)\b/i.test(req.body.expectedQuery.trim())) ? "setup" : (req.body?.taskType === "query" ? "query" : existing.taskType ?? "query");
+    if (req.body?.taskType === "setup" || req.body?.taskType === "query") updates.taskType = taskType;
     const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : existing.requiredTables ?? [];
     if (Array.isArray(req.body?.requiredTables)) updates.requiredTables = requiredTables;
 
@@ -410,7 +417,9 @@ router.patch("/tasks/:id", async (req, res) => {
     if (typeof req.body?.isActive === "boolean") updates.isActive = req.body.isActive;
 
     if (expectedQueryChanged) {
-      const expected = requiredTables.length ? null : buildTaskExpectedResult(String(updates.expectedQuery));
+      const expected = taskType === "setup"
+        ? buildTaskExpectedSetup(String(updates.expectedQuery))
+        : requiredTables.length ? null : buildTaskExpectedResult(String(updates.expectedQuery));
       if (expected && !expected.success) {
         return res.status(400).json({
           success: false,
@@ -418,8 +427,10 @@ router.patch("/tasks/:id", async (req, res) => {
         });
       }
 
-      updates.expectedColumns = expected?.success ? expected.result.columns : null;
-      updates.expectedRows = expected?.success ? expected.result.rows : null;
+      updates.expectedColumns = expected?.success && "result" in expected ? expected.result.columns : null;
+      updates.expectedRows = expected?.success && "result" in expected ? expected.result.rows : null;
+      updates.expectedSetup = expected?.success && "setup" in expected ? expected.setup : null;
+      updates.taskType = taskType;
     } else if (!Array.isArray(existing.expectedColumns) || !Array.isArray(existing.expectedRows)) {
       const expected = buildTaskExpectedResult(existing.expectedQuery);
       if (expected.success) {

@@ -12,6 +12,8 @@ import { generateExplanation, generateStepExplanations } from "../services/expla
 import { prepareVisualizationSteps } from "../services/visualization.service";
 import {
   buildTaskExpectedResult,
+  buildTaskExpectedSetup,
+  executeAndGradeSetup,
   compareTaskResults,
   type TaskExpectedResult,
 } from "../services/taskGrading.service";
@@ -143,7 +145,7 @@ router.post("/:id/start", async (req, res) => {
     }
 
 
-    if (Array.isArray(task.requiredTables) && task.requiredTables.length) {
+    if (task.taskType !== "setup" && Array.isArray(task.requiredTables) && task.requiredTables.length) {
       const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
       runWithDatabase(taskWorkspace.database, () => provisionTaskTables(task, taskWorkspace.database));
       await persistWorkspace(taskWorkspace.key, taskWorkspace.database);
@@ -382,6 +384,53 @@ router.post("/:id/check", async (req, res) => {
         code: "TASK_LOCKED",
         error: "Complete the previous task first to unlock this task.",
         unlockedTaskId: String(nextTask._id),
+      });
+    }
+
+    if (task.taskType === "setup" || task.expectedSetup) {
+      let expectedSetup = task.expectedSetup;
+      if (!expectedSetup?.tables?.length) {
+        const builtSetup = buildTaskExpectedSetup(task.expectedQuery);
+        if (!builtSetup.success) {
+          return res.status(500).json({ success: false, error: "Unable to validate this setup task. Ask an admin to edit and save it again." });
+        }
+        expectedSetup = builtSetup.setup;
+      }
+      const workspace = await resolveWorkspace(req, res, user.localUserId);
+      const startedAt = Date.now();
+      const result = runWithDatabase(workspace.database, () =>
+        executeAndGradeSetup(workspace.database, submittedQuery, expectedSetup)
+      );
+      const executionTimeMs = Date.now() - startedAt;
+      await saveQueryHistory(user.localUserId, {
+        query: submittedQuery,
+        command: parseCommand(submittedQuery),
+        status: result.correct ? "success" : "error",
+        executionTimeMs,
+        rowsReturned: 0,
+        errorMessage: result.correct ? null : result.message || result.error || "Setup task did not match the expected schema and data.",
+      });
+      if (result.correct) {
+        await persistWorkspace(workspace.key, workspace.database);
+        await TaskCompletion.updateOne(
+          { localUserId: user.localUserId, taskId: task._id },
+          { $setOnInsert: {
+            localUserId: user.localUserId,
+            taskId: task._id,
+            pointsAwarded: task.difficulty === "Hard" ? 20 : task.difficulty === "Medium" ? 15 : 10,
+            completedAt: new Date(),
+          } },
+          { upsert: true },
+        );
+      }
+      return res.json({
+        success: true,
+        correct: result.correct,
+        status: result.correct ? "correct" : "incorrect",
+        completed: result.correct,
+        message: result.correct
+          ? "Correct! Your table structure and records match the task requirements."
+          : result.message || result.error || "Your setup does not match the expected table structure and records.",
       });
     }
 

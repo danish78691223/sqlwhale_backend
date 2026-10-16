@@ -15,6 +15,8 @@ const TaskSchema = new Schema({
   expectedQuery: { type: String, required: true, trim: true },
   expectedColumns: { type: [String], default: null },
   expectedRows: { type: [Schema.Types.Mixed], default: null },
+  taskType: { type: String, enum: ["query", "setup"], default: "query" },
+  expectedSetup: { type: Schema.Types.Mixed, default: null },
   requiredTables: { type: [TaskTableConfigSchema], default: [] },
   difficulty: { type: String, enum: ["Easy", "Medium", "Hard"], default: "Easy" },
   isActive: { type: Boolean, default: true, index: true },
