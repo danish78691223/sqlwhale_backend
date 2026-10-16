@@ -46,8 +46,67 @@ export function compareTaskResults(
   return submittedRows.every((row, index) => row === expectedRows[index]);
 }
 
+/** Remove SQL comments without touching quoted strings or identifiers. */
+function stripSQLComments(sql: string): string {
+  let output = "";
+  let quote: "'" | '"' | "`" | "]" | null = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const char = sql[i];
+    const next = sql[i + 1];
+
+    if (lineComment) {
+      if (char === "\\n" || char === "\\r") {
+        lineComment = false;
+        output += char;
+      }
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false;
+        i += 1;
+      } else if (char === "\\n" || char === "\\r") {
+        output += char;
+      }
+      continue;
+    }
+    if (quote) {
+      output += char;
+      if (quote === "]" && char === "]") quote = null;
+      else if (quote !== "]" && char === quote) {
+        if (next === quote && quote !== "`") {
+          output += next;
+          i += 1;
+        } else quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char as "'" | '"' | "`";
+      output += char;
+    } else if (char === "[") {
+      quote = "]";
+      output += char;
+    } else if (char === "-" && next === "-") {
+      lineComment = true;
+      i += 1;
+    } else if (char === "/" && next === "*") {
+      blockComment = true;
+      i += 1;
+    } else {
+      output += char;
+    }
+  }
+  if (blockComment) throw new Error("SQL contains an unclosed block comment.");
+  return output;
+}
+
 /** Split SQL statements without splitting semicolons inside quoted values. */
 export function splitSetupStatements(sql: string): string[] {
+  sql = stripSQLComments(sql);
   const statements: string[] = [];
   let current = "";
   let quote: "'" | '"' | "`" | "]" | null = null;
