@@ -248,6 +248,18 @@ router.post("/:id/reveal-answer", async (req, res) => {
       return res.status(404).json({ success: false, error: "Task not found." });
     }
 
+    // Premium access is determined from the persisted server-side account plan,
+    // never from a client-supplied flag. Premium members bypass the free daily
+    // reveal quota; all other users continue through the existing five-per-day limit.
+    if (user.currentPlan === "SQLWhale Premium" || user.adminPlanOverride === "SQLWhale Premium") {
+      return res.json({
+        success: true,
+        answer: task.expectedQuery,
+        premium: true,
+        unlimited: true,
+      });
+    }
+
     const now = new Date();
     const windowMs = 24 * 60 * 60 * 1000;
     let usage: any = await TaskRevealUsage.findOne({ localUserId: user.localUserId }).exec();
