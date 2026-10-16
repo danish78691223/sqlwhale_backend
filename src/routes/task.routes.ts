@@ -345,6 +345,22 @@ router.post("/:id/check", async (req, res) => {
     }
 
 
+    const alreadyCompleted = await TaskCompletion.exists({
+      localUserId: user.localUserId,
+      taskId: task._id,
+    });
+
+    if (alreadyCompleted) {
+      return res.json({
+        success: true,
+        correct: true,
+        status: "correct",
+        completed: true,
+        alreadyCompleted: true,
+        message: "Task already completed. You do not need to submit it again.",
+      });
+    }
+
     // Server-side task sequence enforcement. Tasks are ordered oldest-first;
     // newly published tasks join the end of the path.
     const sequence = await Task.find({ isActive: true })
@@ -366,21 +382,6 @@ router.post("/:id/check", async (req, res) => {
         code: "TASK_LOCKED",
         error: "Complete the previous task first to unlock this task.",
         unlockedTaskId: String(nextTask._id),
-      });
-    }
-    const alreadyCompleted = await TaskCompletion.exists({
-      localUserId: user.localUserId,
-      taskId: task._id,
-    });
-
-    if (alreadyCompleted) {
-      return res.json({
-        success: true,
-        correct: true,
-        status: "correct",
-        completed: true,
-        alreadyCompleted: true,
-        message: "Task already completed. You do not need to submit it again.",
       });
     }
 
