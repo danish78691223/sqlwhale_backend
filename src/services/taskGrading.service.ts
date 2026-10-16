@@ -58,7 +58,7 @@ function stripSQLComments(sql: string): string {
     const next = sql[i + 1];
 
     if (lineComment) {
-      if (char === "\\n" || char === "\\r") {
+      if (char.charCodeAt(0) === 10 || char.charCodeAt(0) === 13) {
         lineComment = false;
         output += char;
       }
@@ -68,7 +68,7 @@ function stripSQLComments(sql: string): string {
       if (char === "*" && next === "/") {
         blockComment = false;
         i += 1;
-      } else if (char === "\\n" || char === "\\r") {
+      } else if (char.charCodeAt(0) === 10 || char.charCodeAt(0) === 13) {
         output += char;
       }
       continue;
@@ -84,7 +84,7 @@ function stripSQLComments(sql: string): string {
       }
       continue;
     }
-    if (char === "'" || char === '"' || char === "`") {
+    if (char.charCodeAt(0) === 10 || char.charCodeAt(0) === 13) {
       quote = char as "'" | '"' | "`";
       output += char;
     } else if (char === "[") {
@@ -123,7 +123,7 @@ export function splitSetupStatements(sql: string): string[] {
       }
       continue;
     }
-    if (char === "'" || char === '"' || char === "`") {
+    if (char.charCodeAt(0) === 10 || char.charCodeAt(0) === 13) {
       quote = char as "'" | '"' | "`";
       current += char;
     } else if (char === "[") {
