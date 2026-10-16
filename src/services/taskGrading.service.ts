@@ -84,7 +84,7 @@ function stripSQLComments(sql: string): string {
       }
       continue;
     }
-    if (char.charCodeAt(0) === 10 || char.charCodeAt(0) === 13) {
+    if (char === "'" || char === '"' || char === "`") {
       quote = char as "'" | '"' | "`";
       output += char;
     } else if (char === "[") {
@@ -123,7 +123,7 @@ export function splitSetupStatements(sql: string): string[] {
       }
       continue;
     }
-    if (char.charCodeAt(0) === 10 || char.charCodeAt(0) === 13) {
+    if (char === "'" || char === '"' || char === "`") {
       quote = char as "'" | '"' | "`";
       current += char;
     } else if (char === "[") {
