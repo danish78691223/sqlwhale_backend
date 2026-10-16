@@ -328,6 +328,7 @@ router.post("/tasks", async (req, res) => {
     const difficulty = typeof req.body?.difficulty === "string" ? req.body.difficulty : "Easy";
     const isActive = req.body?.isActive !== false;
     const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : [];
+    const taskType = req.body?.taskType === "setup" || /^(?:CREATE\\s+TABLE|INSERT\\s+INTO)\\b/i.test(expectedQuery) ? "setup" : "query";
 
     if (!title || !description || !expectedQuery) {
       return res.status(400).json({ success: false, error: "Task title, description and expected SQL query are required." });
@@ -336,7 +337,7 @@ router.post("/tasks", async (req, res) => {
       return res.status(400).json({ success: false, error: "Difficulty must be Easy, Medium or Hard." });
     }
 
-    const expected = requiredTables.length ? null : buildTaskExpectedResult(expectedQuery);
+    const expected = taskType === "setup" ? buildTaskExpectedSetup(expectedQuery) : requiredTables.length ? null : buildTaskExpectedResult(expectedQuery);
     if (expected && !expected.success) {
       return res.status(400).json({
         success: false,
@@ -349,7 +350,9 @@ router.post("/tasks", async (req, res) => {
       description,
       expectedQuery,
       expectedColumns: expected?.success && "result" in expected ? expected.result.columns : null,
-      expectedRows: expected?.success ? expected.result.rows : null,
+      expectedRows: taskType === "query" && expected?.success && "result" in expected ? expected.result.rows : null,
+      taskType,
+      expectedSetup: taskType === "setup" && expected?.success && "setup" in expected ? expected.setup : null,
       requiredTables,
       difficulty,
       isActive,
@@ -365,6 +368,7 @@ router.post("/tasks", async (req, res) => {
         expectedQuery: task.expectedQuery,
         expectedColumns: task.expectedColumns,
         expectedRows: task.expectedRows,
+        taskType: task.taskType ?? "query",
         requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
