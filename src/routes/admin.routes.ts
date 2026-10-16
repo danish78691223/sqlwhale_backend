@@ -328,7 +328,7 @@ router.post("/tasks", async (req, res) => {
     const difficulty = typeof req.body?.difficulty === "string" ? req.body.difficulty : "Easy";
     const isActive = req.body?.isActive !== false;
     const requiredTables = Array.isArray(req.body?.requiredTables) ? req.body.requiredTables : [];
-    const taskType = req.body?.taskType === "setup" || /^(?:CREATE\\s+TABLE|INSERT\\s+INTO)\\b/i.test(expectedQuery) ? "setup" : "query";
+    const taskType = req.body?.taskType === "setup" || /^(?:CREATE\s+TABLE|INSERT\s+INTO)\b/i.test(expectedQuery) ? "setup" : "query";
 
     if (!title || !description || !expectedQuery) {
       return res.status(400).json({ success: false, error: "Task title, description and expected SQL query are required." });
