@@ -369,6 +369,7 @@ router.post("/tasks", async (req, res) => {
         expectedColumns: task.expectedColumns,
         expectedRows: task.expectedRows,
         taskType: task.taskType ?? "query",
+        taskType: task.taskType ?? "query",
         requiredTables: task.requiredTables ?? [],
         difficulty: task.difficulty,
         isActive: task.isActive,
