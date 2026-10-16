@@ -428,6 +428,7 @@ router.post("/:id/check", async (req, res) => {
         correct: result.correct,
         status: result.correct ? "correct" : "incorrect",
         completed: result.correct,
+        taskType: "setup",
         message: result.correct
           ? "Correct! Your table structure and records match the task requirements."
           : result.message || result.error || "Your setup does not match the expected table structure and records.",
