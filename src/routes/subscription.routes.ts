@@ -629,12 +629,6 @@ router.post("/plan-order", async (req, res) => {
       return res.status(400).json({ success: false, error: "Choose a valid fixed-duration Premium plan." });
     }
     const selected = FIXED_DURATION_PLANS[requestedPlanId as FixedDurationPlanId];
-    const activeFixedPayment = await SubscriptionPayment.findOne({
-      localUserId: user.localUserId, status: "paid", accessUntil: { $gt: new Date() },
-    }).select("_id").lean().exec();
-    if (activeFixedPayment) {
-      return res.status(409).json({ success: false, error: "A fixed-duration Premium plan is already active on this account." });
-    }
     const monthly: any = await MonthlySubscription.findOne({ localUserId: user.localUserId }).sort({ createdAt: -1 }).exec();
     const hasActiveMonthly = Boolean(monthly && ["active", "authenticated"].includes(String(monthly.status)) && !monthly.cancelAtCycleEnd);
     if (user.currentPlan === "SQLWhale Premium" && !hasActiveMonthly) {
