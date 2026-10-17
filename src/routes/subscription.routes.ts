@@ -664,9 +664,9 @@ router.post("/plan-order", async (req, res) => {
       status: "paid",
       accessUntil: { $gt: new Date() },
     }).select("_id").lean().exec();
-    if (user.currentPlan === "SQLWhale Premium" && !hasActiveMonthly && !activeFixedPayment) {
-      return res.status(409).json({ success: false, error: "Premium is already active, but the current plan status could not be confirmed. Please contact support before purchasing again." });
-    }
+    // This endpoint is specifically for switching to a paid fixed-duration plan.
+    // Do not block an existing Premium user solely because recurring metadata is stale:
+    // the new payment is verified before any previous monthly renewal is cancelled.
     const credentials = razorpayCredentials();
     if (!credentials) return res.status(503).json({ success: false, error: "Payment settings are not configured on Render." });
 
@@ -841,21 +841,32 @@ router.post("/verify", async (req, res) => {
       const previousMonthly: any = await MonthlySubscription.findOne({
         localUserId: user.localUserId,
         cancelAtCycleEnd: false,
-        status: { $in: ["active", "authenticated"] },
       }).sort({ createdAt: -1 }).exec();
       if (previousMonthly) {
         try {
-          const remote: any = await razorpayRequest(
-            "/subscriptions/" + encodeURIComponent(previousMonthly.subscriptionId) + "/cancel",
-            { method: "POST", body: JSON.stringify({ cancel_at_cycle_end: false }) },
+          // Refresh the remote record first. Local status can lag behind Razorpay,
+          // so don't rely on the cached status to decide whether renewal exists.
+          const remoteBeforeCancel: any = await razorpayRequest(
+            "/subscriptions/" + encodeURIComponent(previousMonthly.subscriptionId),
           );
-          previousMonthly.status = remote?.status || "cancelled";
-          previousMonthly.cancelAtCycleEnd = false;
-          if (typeof remote?.current_end === "number") previousMonthly.currentPeriodEnd = new Date(remote.current_end * 1000);
-          await previousMonthly.save();
+          const remoteStatus = String(remoteBeforeCancel?.status || previousMonthly.status);
+          if (["active", "authenticated"].includes(remoteStatus)) {
+            const remote: any = await razorpayRequest(
+              "/subscriptions/" + encodeURIComponent(previousMonthly.subscriptionId) + "/cancel",
+              { method: "POST", body: JSON.stringify({ cancel_at_cycle_end: false }) },
+            );
+            previousMonthly.status = remote?.status || "cancelled";
+            previousMonthly.cancelAtCycleEnd = false;
+            if (typeof remote?.current_end === "number") previousMonthly.currentPeriodEnd = new Date(remote.current_end * 1000);
+            await previousMonthly.save();
+          } else {
+            previousMonthly.status = remoteStatus;
+            if (typeof remoteBeforeCancel?.current_end === "number") previousMonthly.currentPeriodEnd = new Date(remoteBeforeCancel.current_end * 1000);
+            await previousMonthly.save();
+          }
         } catch (cancelError: any) {
           recurringCancellationPending = true;
-          console.error("Paid plan switch: unable to cancel old monthly subscription:", cancelError?.message || cancelError);
+          console.error("Paid plan switch: unable to reconcile/cancel old monthly subscription:", cancelError?.message || cancelError);
         }
       }
       await User.updateOne(
