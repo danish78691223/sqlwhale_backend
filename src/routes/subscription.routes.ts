@@ -628,7 +628,7 @@ router.post("/plan-order", async (req, res) => {
       return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
     }
     const requestedPlanId = typeof req.body?.planId === "string" ? req.body.planId : "";
-    if (!(requestedPlanId in FIXED_DURATION_PLANS)) {
+    if (!Object.prototype.hasOwnProperty.call(FIXED_DURATION_PLANS, requestedPlanId)) {
       return res.status(400).json({ success: false, error: "Choose a valid fixed-duration Premium plan." });
     }
     const selected = FIXED_DURATION_PLANS[requestedPlanId as FixedDurationPlanId];
