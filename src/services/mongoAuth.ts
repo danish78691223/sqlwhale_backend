@@ -88,7 +88,30 @@ export async function getCurrentUser(req: Request) {
   }).exec() as any;
 
   if (!session) return null;
-  return await User.findOne({ localUserId: session.localUserId }).exec() as any;
+  const user: any = await User.findOne({ localUserId: session.localUserId }).exec();
+  if (!user) return null;
+
+  // Fixed-duration Premium access expires server-side, even if the user never
+  // visits the subscription page. Permanent purchases and admins have no timer.
+  if (
+    user.currentPlan === "SQLWhale Premium" &&
+    user.premiumAccessUntil &&
+    new Date(user.premiumAccessUntil).getTime() <= Date.now() &&
+    !user.adminPlanOverride
+  ) {
+    const expiry = user.premiumAccessUntil;
+    const update = await User.updateOne(
+      { localUserId: user.localUserId, premiumAccessUntil: expiry, currentPlan: "SQLWhale Premium" },
+      { $set: { currentPlan: "Starter" }, $unset: { premiumAccessUntil: 1 } },
+    ).exec();
+    if (update.modifiedCount) {
+      user.currentPlan = "Starter";
+      user.premiumAccessUntil = null;
+    } else {
+      return await User.findOne({ localUserId: session.localUserId }).exec() as any;
+    }
+  }
+  return user;
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
