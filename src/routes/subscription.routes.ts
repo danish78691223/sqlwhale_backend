@@ -116,22 +116,31 @@ router.get("/status", async (req, res) => {
       }
     }
 
-    const recurringActive = Boolean(monthly && monthly.status === "active");
-    // Keep monthly Premium access through its already-paid period even if
-    // Razorpay later reports a transient/non-active status. Require proof that
-    // the subscription was previously activated, and a future billing-period end;
-    // an authenticated mandate alone must never unlock Premium.
+    // Verified activation/payment plus a current billing period is sufficient
+    // to preserve monthly access if Razorpay temporarily reports a non-active status.
+    // An authenticated mandate alone does not qualify.
+    const monthlyPeriodIsCurrent = Boolean(
+      monthly?.currentPeriodEnd &&
+      new Date(monthly.currentPeriodEnd).getTime() > Date.now(),
+    );
+    const monthlyHasVerifiedPayment = Boolean(
+      monthly && (monthly.activatedAt || monthly.lastPaymentAt || monthly.paymentId) &&
+      monthlyPeriodIsCurrent,
+    );
+    const recurringActive = Boolean(
+      monthly && (monthly.status === "active" || monthlyHasVerifiedPayment),
+    );
     const monthlyHasVerifiedActivation = Boolean(
       monthly && (
         monthly.status === "active" ||
         monthly.cancelAtCycleEnd ||
-        monthly.activatedAt
+        monthly.activatedAt ||
+        monthly.lastPaymentAt ||
+        monthly.paymentId
       ),
     );
     const monthlyAccessUntilEnd = Boolean(
-      monthlyHasVerifiedActivation &&
-      monthly?.currentPeriodEnd &&
-      new Date(monthly.currentPeriodEnd).getTime() > Date.now(),
+      monthlyHasVerifiedActivation && monthlyPeriodIsCurrent,
     );
     const timedPaymentActive = Boolean(payment?.accessUntil && new Date(payment.accessUntil).getTime() > Date.now());
     const legacyPaid = Boolean(payment && !payment.accessUntil);
@@ -640,9 +649,23 @@ router.post("/plan-order", async (req, res) => {
     }
     const selected = FIXED_DURATION_PLANS[requestedPlanId as FixedDurationPlanId];
     const monthly: any = await MonthlySubscription.findOne({ localUserId: user.localUserId }).sort({ createdAt: -1 }).exec();
-    const hasActiveMonthly = Boolean(monthly && ["active", "authenticated"].includes(String(monthly.status)) && !monthly.cancelAtCycleEnd);
-    if (user.currentPlan === "SQLWhale Premium" && !hasActiveMonthly) {
-      return res.status(409).json({ success: false, error: "Premium is already active. You can switch plans after checking your current plan status." });
+    const monthlyPeriodIsCurrent = Boolean(
+      monthly?.currentPeriodEnd && new Date(monthly.currentPeriodEnd).getTime() > Date.now(),
+    );
+    const hasVerifiedMonthlyPayment = Boolean(
+      monthly && (monthly.activatedAt || monthly.lastPaymentAt || monthly.paymentId) && monthlyPeriodIsCurrent,
+    );
+    const hasActiveMonthly = Boolean(
+      monthly && !monthly.cancelAtCycleEnd &&
+      (["active", "authenticated"].includes(String(monthly.status)) || hasVerifiedMonthlyPayment),
+    );
+    const activeFixedPayment = await SubscriptionPayment.findOne({
+      localUserId: user.localUserId,
+      status: "paid",
+      accessUntil: { $gt: new Date() },
+    }).select("_id").lean().exec();
+    if (user.currentPlan === "SQLWhale Premium" && !hasActiveMonthly && !activeFixedPayment) {
+      return res.status(409).json({ success: false, error: "Premium is already active, but the current plan status could not be confirmed. Please contact support before purchasing again." });
     }
     const credentials = razorpayCredentials();
     if (!credentials) return res.status(503).json({ success: false, error: "Payment settings are not configured on Render." });
