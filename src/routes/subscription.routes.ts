@@ -624,14 +624,22 @@ router.post("/plan-order", async (req, res) => {
     if (req.body?.termsAccepted !== true || req.body?.refundPolicyAccepted !== true) {
       return res.status(400).json({ success: false, error: "Accept the Terms & Conditions and Refund/Cancellation Policy before proceeding." });
     }
-    if (user.currentPlan === "SQLWhale Premium") {
-      return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
-    }
     const requestedPlanId = typeof req.body?.planId === "string" ? req.body.planId : "";
     if (!Object.prototype.hasOwnProperty.call(FIXED_DURATION_PLANS, requestedPlanId)) {
       return res.status(400).json({ success: false, error: "Choose a valid fixed-duration Premium plan." });
     }
     const selected = FIXED_DURATION_PLANS[requestedPlanId as FixedDurationPlanId];
+    const activeFixedPayment = await SubscriptionPayment.findOne({
+      localUserId: user.localUserId, status: "paid", accessUntil: { $gt: new Date() },
+    }).select("_id").lean().exec();
+    if (activeFixedPayment) {
+      return res.status(409).json({ success: false, error: "A fixed-duration Premium plan is already active on this account." });
+    }
+    const monthly: any = await MonthlySubscription.findOne({ localUserId: user.localUserId }).sort({ createdAt: -1 }).exec();
+    const hasActiveMonthly = Boolean(monthly && ["active", "authenticated"].includes(String(monthly.status)) && !monthly.cancelAtCycleEnd);
+    if (user.currentPlan === "SQLWhale Premium" && !hasActiveMonthly) {
+      return res.status(409).json({ success: false, error: "Premium is already active. You can switch plans after checking your current plan status." });
+    }
     const credentials = razorpayCredentials();
     if (!credentials) return res.status(503).json({ success: false, error: "Payment settings are not configured on Render." });
 
@@ -801,7 +809,28 @@ router.post("/verify", async (req, res) => {
     }
     await savedPayment.save();
 
+    let recurringCancellationPending = false;
     if (savedPayment.purchaseType === "fixed_duration") {
+      const previousMonthly: any = await MonthlySubscription.findOne({
+        localUserId: user.localUserId,
+        cancelAtCycleEnd: false,
+        status: { $in: ["active", "authenticated"] },
+      }).sort({ createdAt: -1 }).exec();
+      if (previousMonthly) {
+        try {
+          const remote: any = await razorpayRequest(
+            "/subscriptions/" + encodeURIComponent(previousMonthly.subscriptionId) + "/cancel",
+            { method: "POST", body: JSON.stringify({ cancel_at_cycle_end: false }) },
+          );
+          previousMonthly.status = remote?.status || "cancelled";
+          previousMonthly.cancelAtCycleEnd = false;
+          if (typeof remote?.current_end === "number") previousMonthly.currentPeriodEnd = new Date(remote.current_end * 1000);
+          await previousMonthly.save();
+        } catch (cancelError: any) {
+          recurringCancellationPending = true;
+          console.error("Paid plan switch: unable to cancel old monthly subscription:", cancelError?.message || cancelError);
+        }
+      }
       await User.updateOne(
         { localUserId: user.localUserId },
         { $set: { currentPlan: "SQLWhale Premium", premiumAccessUntil: savedPayment.accessUntil }, $unset: { adminPlanOverride: 1 } },
@@ -816,7 +845,10 @@ router.post("/verify", async (req, res) => {
     res.json({
       success: true, verified: true, subscribed: true, plan: savedPayment.plan || "SQLWhale Premium",
       currentPeriodEnd: savedPayment.accessUntil ?? null,
-      message: "Payment verified! SQLWhale Premium is active.",
+      recurringCancellationPending,
+      message: recurringCancellationPending
+        ? "Payment verified and Premium is active, but the previous monthly renewal could not be cancelled automatically. Please cancel it from your profile or contact support to avoid another renewal."
+        : "Payment verified! SQLWhale Premium is active.",
     });
   } catch (error: any) {
     console.error("Payment verification error:", error?.message || error);
