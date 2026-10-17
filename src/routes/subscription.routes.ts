@@ -9,6 +9,21 @@ const MIN_PRICE = 600;
 const ORIGINAL_PRICE = 1000;
 const CURRENCY = "INR";
 const SESSION_TTL_MS = 30 * 60 * 1000;
+const FIXED_DURATION_PLANS = {
+  "five-month": { amountRupees: 149, durationMonths: 5, label: "SQLWhale Premium · 5 months" },
+  "ten-month": { amountRupees: 249, durationMonths: 10, label: "SQLWhale Premium · 10 months" },
+} as const;
+type FixedDurationPlanId = keyof typeof FIXED_DURATION_PLANS;
+
+function addCalendarMonths(from: Date, months: number): Date {
+  const result = new Date(from);
+  const day = result.getDate();
+  result.setDate(1);
+  result.setMonth(result.getMonth() + months);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
+  return result;
+}
 
 function razorpayCredentials() {
   const keyId = process.env.RAZORPAY_KEY_ID?.trim();
@@ -74,8 +89,11 @@ router.get("/status", async (req, res) => {
     const user = await requireUser(req, res);
     if (!user) return;
 
-    const payment = await SubscriptionPayment.findOne({ localUserId: user.localUserId, status: "paid" })
-      .sort({ verifiedAt: -1 }).lean().exec() as any;
+    const payment = await SubscriptionPayment.findOne({
+      localUserId: user.localUserId,
+      status: "paid",
+      $or: [{ accessUntil: null }, { accessUntil: { $gt: new Date() } }],
+    }).sort({ verifiedAt: -1 }).lean().exec() as any;
     const monthly: any = await MonthlySubscription.findOne({ localUserId: user.localUserId })
       .sort({ createdAt: -1 }).exec();
 
@@ -105,9 +123,10 @@ router.get("/status", async (req, res) => {
       new Date(monthly.currentPeriodEnd).getTime() > Date.now() &&
       ["active", "authenticated"].includes(String(monthly.status)),
     );
-    const legacyPaid = Boolean(payment);
-    const paymentDerivedPremium = recurringActive || monthlyAccessUntilEnd || legacyPaid ||
-      (!monthly && user.currentPlan === "SQLWhale Premium");
+    const timedPaymentActive = Boolean(payment?.accessUntil && new Date(payment.accessUntil).getTime() > Date.now());
+    const legacyPaid = Boolean(payment && !payment.accessUntil);
+    const paymentDerivedPremium = recurringActive || monthlyAccessUntilEnd || timedPaymentActive || legacyPaid ||
+      (!monthly && !payment && user.currentPlan === "SQLWhale Premium");
     // A deliberate admin override takes precedence until a later successful
     // payment verification clears it. This prevents status refresh from undoing support fixes.
     const currentPlan = user.adminPlanOverride || (paymentDerivedPremium ? "SQLWhale Premium" : "Starter");
@@ -132,7 +151,8 @@ router.get("/status", async (req, res) => {
       subscriptionId: monthly && (recurringActive || monthlyAccessUntilEnd) ? monthly.subscriptionId : null,
       subscriptionStatus: monthly?.status ?? null,
       cancelAtCycleEnd: Boolean(monthly?.cancelAtCycleEnd),
-      currentPeriodEnd: monthly?.currentPeriodEnd ?? null,
+      currentPeriodEnd: timedPaymentActive ? payment?.accessUntil : monthly?.currentPeriodEnd ?? null,
+      durationMonths: timedPaymentActive ? payment?.durationMonths ?? null : null,
       activationPending: Boolean(monthly && !subscribed && ["created", "authenticated", "pending"].includes(String(monthly.status))),
     });
   } catch (error) {
@@ -579,7 +599,11 @@ router.post("/webhook", async (req, res) => {
     if (event === "subscription.cancelled") saved.cancelAtCycleEnd = false;
     await saved.save();
 
-    const legacyPaid = await SubscriptionPayment.findOne({ localUserId: saved.localUserId, status: "paid" }).select("_id").lean().exec();
+    const legacyPaid = await SubscriptionPayment.findOne({
+      localUserId: saved.localUserId,
+      status: "paid",
+      $or: [{ accessUntil: null }, { accessUntil: { $gt: new Date() } }],
+    }).select("_id").lean().exec();
     const accessActive = nextStatus === "active";
     await User.updateOne(
       { localUserId: saved.localUserId },
@@ -590,6 +614,65 @@ router.post("/webhook", async (req, res) => {
   } catch (error) {
     console.error("Razorpay subscription webhook failed:", error);
     res.status(500).json({ success: false, error: "Unable to process subscription webhook." });
+  }
+});
+
+router.post("/plan-order", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    if (req.body?.termsAccepted !== true || req.body?.refundPolicyAccepted !== true) {
+      return res.status(400).json({ success: false, error: "Accept the Terms & Conditions and Refund/Cancellation Policy before proceeding." });
+    }
+    if (user.currentPlan === "SQLWhale Premium") {
+      return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
+    }
+    const requestedPlanId = typeof req.body?.planId === "string" ? req.body.planId : "";
+    if (!Object.prototype.hasOwnProperty.call(FIXED_DURATION_PLANS, requestedPlanId)) {
+      return res.status(400).json({ success: false, error: "Choose a valid fixed-duration Premium plan." });
+    }
+    const selected = FIXED_DURATION_PLANS[requestedPlanId as FixedDurationPlanId];
+    const credentials = razorpayCredentials();
+    if (!credentials) return res.status(503).json({ success: false, error: "Payment settings are not configured on Render." });
+
+    const amountPaise = selected.amountRupees * 100;
+    const order = await razorpayRequest<{ id: string; amount: number; currency: string }>("/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: amountPaise,
+        currency: CURRENCY,
+        receipt: "sw_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex"),
+        notes: {
+          localUserId: user.localUserId,
+          plan: selected.label,
+          planId: requestedPlanId,
+          durationMonths: String(selected.durationMonths),
+          purchaseType: "fixed_duration",
+        },
+      }),
+    });
+    const consentAt = new Date();
+    await SubscriptionPayment.create({
+      localUserId: user.localUserId,
+      orderId: order.id,
+      amountPaise,
+      currency: CURRENCY,
+      status: "created",
+      plan: selected.label,
+      purchaseType: "fixed_duration",
+      durationMonths: selected.durationMonths,
+      termsAcceptedAt: consentAt,
+      refundPolicyAcceptedAt: consentAt,
+    });
+    res.status(201).json({
+      success: true,
+      order: { id: order.id, amount: order.amount, currency: order.currency },
+      keyId: credentials.keyId,
+      plan: selected.label,
+    });
+  } catch (error: any) {
+    console.error("Fixed-duration plan order error:", error?.message || error);
+    res.status(500).json({ success: false, error: "Unable to create a fixed-duration Razorpay order. Please try again." });
   }
 });
 
@@ -670,8 +753,14 @@ router.post("/verify", async (req, res) => {
     if (!savedPayment) return res.status(404).json({ success: false, error: "Payment order not found for this account." });
     if (savedPayment.status === "paid") {
       if (savedPayment.paymentId === paymentId) {
-        await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
-        return res.json({ success: true, verified: true, subscribed: true, message: "Subscription is already active." });
+        if (savedPayment.accessUntil && new Date(savedPayment.accessUntil).getTime() <= Date.now()) {
+          return res.json({ success: true, verified: true, subscribed: false, expired: true, message: "This fixed-duration Premium plan has expired." });
+        }
+        const entitlementUpdate: any = { $set: { currentPlan: "SQLWhale Premium" }, $unset: { adminPlanOverride: 1 } };
+        if (savedPayment.accessUntil) entitlementUpdate.$set.premiumAccessUntil = savedPayment.accessUntil;
+        else entitlementUpdate.$unset.premiumAccessUntil = 1;
+        await User.updateOne({ localUserId: user.localUserId }, entitlementUpdate).exec();
+        return res.json({ success: true, verified: true, subscribed: true, currentPeriodEnd: savedPayment.accessUntil ?? null, message: "Payment is already verified." });
       }
       return res.status(409).json({ success: false, error: "This order has already been paid." });
     }
@@ -695,11 +784,40 @@ router.post("/verify", async (req, res) => {
     savedPayment.paymentId = paymentId;
     savedPayment.status = "paid";
     savedPayment.verifiedAt = new Date();
+
+    if (savedPayment.purchaseType === "fixed_duration") {
+      const months = Number(savedPayment.durationMonths);
+      const expectedAmountPaise = months === 5 ? 14900 : months === 10 ? 24900 : null;
+      if (!expectedAmountPaise || Number(savedPayment.amountPaise) !== expectedAmountPaise) {
+        return res.status(400).json({ success: false, verified: false, error: "The saved fixed-duration plan details do not match the amount." });
+      }
+      const activeTimedPayment: any = await SubscriptionPayment.findOne({
+        localUserId: user.localUserId,
+        status: "paid",
+        accessUntil: { $gt: new Date() },
+      }).sort({ accessUntil: -1 }).lean().exec();
+      const startsAt = activeTimedPayment?.accessUntil ? new Date(activeTimedPayment.accessUntil) : new Date();
+      savedPayment.accessUntil = addCalendarMonths(startsAt, months);
+    }
     await savedPayment.save();
 
-    await User.updateOne({ localUserId: user.localUserId }, { $set: { currentPlan: "SQLWhale Premium" } }).exec();
+    if (savedPayment.purchaseType === "fixed_duration") {
+      await User.updateOne(
+        { localUserId: user.localUserId },
+        { $set: { currentPlan: "SQLWhale Premium", premiumAccessUntil: savedPayment.accessUntil }, $unset: { adminPlanOverride: 1 } },
+      ).exec();
+    } else {
+      await User.updateOne(
+        { localUserId: user.localUserId },
+        { $set: { currentPlan: "SQLWhale Premium" }, $unset: { adminPlanOverride: 1, premiumAccessUntil: 1 } },
+      ).exec();
+    }
 
-    res.json({ success: true, verified: true, subscribed: true, plan: "SQLWhale Premium", message: "Payment verified! SQLWhale Premium is active." });
+    res.json({
+      success: true, verified: true, subscribed: true, plan: savedPayment.plan || "SQLWhale Premium",
+      currentPeriodEnd: savedPayment.accessUntil ?? null,
+      message: "Payment verified! SQLWhale Premium is active.",
+    });
   } catch (error: any) {
     console.error("Payment verification error:", error?.message || error);
     res.status(500).json({ success: false, error: "Unable to verify payment. Contact support if money was deducted." });

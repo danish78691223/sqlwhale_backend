@@ -12,17 +12,17 @@ const PaymentSchema = new Schema({
   localUserId: { type: String, required: true, index: true },
   orderId: { type: String, required: true, unique: true, index: true },
   paymentId: { type: String, default: null, index: true },
-  amountPaise: { type: Number, required: true, min: 60000 },
+  amountPaise: { type: Number, required: true, min: 4900 },
   currency: { type: String, default: "INR" },
   status: { type: String, enum: ["created", "paid", "failed"], default: "created", index: true },
   plan: { type: String, default: "SQLWhale Premium" },
   purchaseType: { type: String, default: "bargain" },
+  durationMonths: { type: Number, default: null },
+  accessUntil: { type: Date, default: null },
   termsAcceptedAt: { type: Date, default: null },
   refundPolicyAcceptedAt: { type: Date, default: null },
   verifiedAt: { type: Date, default: null },
 }, { timestamps: true, collection: "subscription_payments" });
-
-
 
 const MonthlySubscriptionSchema = new Schema({
   localUserId: { type: String, required: true, index: true },
@@ -40,6 +40,5 @@ const MonthlySubscriptionSchema = new Schema({
 }, { timestamps: true, collection: "monthly_subscriptions" });
 
 export const MonthlySubscription = models.SQLWhaleMonthlySubscription || model("SQLWhaleMonthlySubscription", MonthlySubscriptionSchema);
-
 export const BargainState = models.SQLWhaleBargainState || model("SQLWhaleBargainState", BargainStateSchema);
 export const SubscriptionPayment = models.SQLWhaleSubscriptionPayment || model("SQLWhaleSubscriptionPayment", PaymentSchema);
