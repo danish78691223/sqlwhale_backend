@@ -117,11 +117,21 @@ router.get("/status", async (req, res) => {
     }
 
     const recurringActive = Boolean(monthly && monthly.status === "active");
+    // Keep monthly Premium access through its already-paid period even if
+    // Razorpay later reports a transient/non-active status. Require proof that
+    // the subscription was previously activated, and a future billing-period end;
+    // an authenticated mandate alone must never unlock Premium.
+    const monthlyHasVerifiedActivation = Boolean(
+      monthly && (
+        monthly.status === "active" ||
+        monthly.cancelAtCycleEnd ||
+        monthly.activatedAt
+      ),
+    );
     const monthlyAccessUntilEnd = Boolean(
-      monthly?.cancelAtCycleEnd &&
-      monthly.currentPeriodEnd &&
-      new Date(monthly.currentPeriodEnd).getTime() > Date.now() &&
-      ["active", "authenticated"].includes(String(monthly.status)),
+      monthlyHasVerifiedActivation &&
+      monthly?.currentPeriodEnd &&
+      new Date(monthly.currentPeriodEnd).getTime() > Date.now(),
     );
     const timedPaymentActive = Boolean(payment?.accessUntil && new Date(payment.accessUntil).getTime() > Date.now());
     const legacyPaid = Boolean(payment && !payment.accessUntil);
