@@ -195,11 +195,19 @@ const moduleTwoQuiz = [
   { question: "Which expression joins text in SQLWhale's SQLite sandbox?", options: ["full_name + ' student'", "full_name || ' student'", "JOIN_TEXT(full_name)", "full_name CONCAT ' student'"], answer: 1, explanation: "SQLite supports the || operator for text concatenation." },
 ];
 
+const moduleThreeQuiz = [
+  { question: "Which clause filters individual rows in a SELECT query?", options: ["ORDER BY", "WHERE", "GROUP BY", "AS"], answer: 1, explanation: "WHERE keeps only rows that satisfy the condition." },
+  { question: "Which operator requires both conditions to be true?", options: ["OR", "NOT", "AND", "IN"], answer: 2, explanation: "AND returns true only when every connected condition is true." },
+  { question: "What does BETWEEN 10 AND 20 include?", options: ["Only values above 10 and below 20", "10 and 20 as well as values between them", "Only 10 and 20", "Only values greater than 20"], answer: 1, explanation: "BETWEEN is inclusive: both endpoints are included." },
+  { question: "In LIKE 'S%', what does % mean?", options: ["Exactly one character", "A numeric value", "Zero or more characters", "A missing value"], answer: 2, explanation: "% matches zero or more characters; underscore (_) matches exactly one character." },
+  { question: "How should SQL test whether email is missing?", options: ["email = NULL", "email == NULL", "email IS NULL", "email LIKE NULL"], answer: 2, explanation: "Use IS NULL because NULL represents a missing or unknown value." },
+];
+
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -244,7 +252,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 2) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 3) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
