@@ -87,8 +87,8 @@ router.post("/learning-progress/:sectionId", async (req, res) => {
           if (!previous) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first." });
           return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module is not available yet." });
         }
-        const quiz = await LearningQuizAttempt.findOne({ localUserId: u.localUserId, moduleId }).lean().exec();
-        if (!quiz?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass Module 1's quiz with at least 3 out of 5 correct answers first." });
+        const quizAttempt: { passed?: boolean } | null = await LearningQuizAttempt.findOne({ localUserId: u.localUserId, moduleId }).select({ passed: 1, _id: 0 }).lean().exec() as { passed?: boolean } | null;
+        if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass Module 1's quiz with at least 3 out of 5 correct answers first." });
       }
     }
     res.json({ success: true, progress: await completeLearningProgress(u.localUserId, sectionId) });
