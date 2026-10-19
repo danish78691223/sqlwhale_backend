@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { getCurrentUser } from "../services/mongoAuth";
 import LearningProgress from "../models/LearningProgress";
 import LearningAssessment from "../models/LearningAssessment";
+import db from "../config/database";
 
 const router = Router();
 
@@ -85,11 +86,75 @@ const queryQuestions = [
   { id: "q4", question: "Return employee_id and amount for salary records with amount at least 50000, highest amount first.", expected: "SELECT employee_id, amount FROM salary WHERE amount >= 50000 ORDER BY amount DESC;", hint: "WHERE, ORDER BY DESC" },
 ] as const;
 
-function getScore(payload: any) {
-  const a = payload?.answers || {};
-  const mcqAnswers = a.mcq || {};
-  const mcqScore = mcqs.reduce((score, q) => score + (Number(mcqAnswers[q.id]) === q.answer ? 1 : 0), 0);
-  return { mcqScore, answers: a };
+function gradeLongAnswer(questionId: string, answer: string): { score: number; feedback: string } {
+  const text = answer.trim();
+  if (text.length < 20) return { score: 0, feedback: "Add a fuller explanation with SQL terminology and an example." };
+  const rubric: Record<string, string[][]> = {
+    l1: [
+      ["\\bwhere\\b"], ["\\b(rows?|records?|individual)\\b"], ["\\bhaving\\b"],
+      ["\\b(groups?|aggregate|aggregation)\\b"], ["\\b(before|prior|after|once)\\b"],
+    ],
+    l2: [
+      ["primary key"], ["unique|uniquely|identifier"], ["foreign key"],
+      ["reference|relationship|link|refer"], ["referential integrity|parent|child|related table"],
+    ],
+    l3: [
+      ["inner join"], ["matching|matches|matched rows"], ["left join"],
+      ["all rows|every row|left table"], ["unmatched|no match|null|optional|preserve"],
+    ],
+    l4: [
+      ["normalization|normalisation"], ["redundancy|duplicate data|update anomaly|anomalies"],
+      ["\\bindexes?\\b"], ["performance|faster|speed|query time"], ["storage|write cost|trade.?off|slows writes"],
+    ],
+  };
+  const criteria = rubric[questionId] || [];
+  const score = criteria.reduce((total, patterns) =>
+    total + (patterns.some((pattern) => new RegExp(pattern, "i").test(text)) ? 1 : 0), 0);
+  return {
+    score: Math.min(5, score),
+    feedback: score >= 4
+      ? "Good coverage of the core rubric concepts."
+      : "Review the key terms in the question and explain each concept more explicitly.",
+  };
+}
+
+function gradeSqlQuery(questionId: string, submittedQuery: string, expectedQuery: string): { correct: boolean; feedback: string } {
+  const sql = submittedQuery.trim().replace(/;+\\s*$/, "");
+  if (!sql) return { correct: false, feedback: "No SQL query was provided." };
+  if (!/^(SELECT|WITH)\\b/i.test(sql) || sql.includes(";") ||
+      /\\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|VACUUM|REPLACE)\\b/i.test(sql)) {
+    return { correct: false, feedback: "Submit one read-only SELECT query for this assessment question." };
+  }
+
+  const required: Record<string, RegExp[]> = {
+    q1: [/\\bWHERE\\b/i, /\\bORDER\\s+BY\\b/i],
+    q2: [/\\bGROUP\\s+BY\\b/i, /\\bHAVING\\b/i, /\\bCOUNT\\s*\\(/i],
+    q3: [/\\bLEFT\\s+JOIN\\b/i, /\\bON\\b/i],
+    q4: [/\\bWHERE\\b/i, /\\bORDER\\s+BY\\b/i],
+  };
+  if ((required[questionId] || []).some((pattern) => !pattern.test(sql))) {
+    return { correct: false, feedback: "The query is missing one or more required SQL clauses." };
+  }
+
+  try {
+    const actualRows = db.prepare(sql).all() as Record<string, unknown>[];
+    const expectedRows = db.prepare(expectedQuery).all() as Record<string, unknown>[];
+    const values = (rows: Record<string, unknown>[]) => rows.map((row) => Object.values(row));
+    const actual = values(actualRows);
+    const expected = values(expectedRows);
+    const unordered = questionId === "q2" || questionId === "q3";
+    const comparableActual = unordered ? [...actual].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : actual;
+    const comparableExpected = unordered ? [...expected].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : expected;
+    const correct = JSON.stringify(comparableActual) === JSON.stringify(comparableExpected);
+    return {
+      correct,
+      feedback: correct
+        ? "Correct: the output matches the expected result."
+        : "The query ran, but its output does not match the expected result. Check selected columns, filters, joins and ordering.",
+    };
+  } catch {
+    return { correct: false, feedback: "The query could not be executed against the assessment dataset. Check table and column names." };
+  }
 }
 
 router.get("/progress", async (req: Request, res: Response) => {
@@ -157,27 +222,62 @@ router.post("/assessment/submit", async (req: Request, res: Response) => {
   if (!user) return res.status(401).json({ success: false, error: "Sign in to submit the final assessment." });
   try {
     const completed = new Set((await LearningProgress.find({ localUserId: user.localUserId }).select("sectionId").lean().exec()).map((x: any) => x.sectionId));
-    if (!modules.every((m) => completed.has(m.sectionId))) return res.status(403).json({ success: false, error: "Complete all 10 modules before submitting the assessment." });
-    const { mcqScore, answers } = getScore(req.body);
-    const current = await LearningAssessment.findOne({ localUserId: user.localUserId }).exec();
-    if (current?.status === "passed") return res.status(409).json({ success: false, error: "You have already passed the final assessment." });
+    if (!modules.every((m) => completed.has(m.sectionId))) {
+      return res.status(403).json({ success: false, error: "Complete all 10 modules before submitting the assessment." });
+    }
+
+    const current: any = await LearningAssessment.findOne({ localUserId: user.localUserId }).lean().exec();
+    if (current?.status === "passed") {
+      return res.status(409).json({ success: false, error: "You have already passed the final assessment." });
+    }
+
+    const submitted = req.body?.answers || {};
+    const submittedMcq = submitted.mcq || {};
+    const submittedLong = submitted.longAnswers || {};
+    const submittedQueries = submitted.queries || {};
+    const mcqScore = mcqs.reduce((score, q) => score + (Number(submittedMcq[q.id]) === q.answer ? 1 : 0), 0);
+    const longResults = longQuestions.map((q) => {
+      const answer = String(submittedLong[q.id] || "").slice(0, 10000);
+      const graded = gradeLongAnswer(q.id, answer);
+      return { id: q.id, score: graded.score, maxScore: 5, feedback: graded.feedback };
+    });
+    const queryResults = queryQuestions.map((q) => {
+      const answer = String(submittedQueries[q.id] || "").slice(0, 4000);
+      const graded = gradeSqlQuery(q.id, answer, q.expected);
+      return { id: q.id, score: graded.correct ? 5 : 0, maxScore: 5, correct: graded.correct, feedback: graded.feedback };
+    });
+    const longAnswerScore = longResults.reduce((total, item) => total + item.score, 0);
+    const queryScore = queryResults.reduce((total, item) => total + item.score, 0);
+    const totalScore = mcqScore + longAnswerScore + queryScore;
+    const status = totalScore >= 40 ? "passed" : "failed";
     const cleanAnswers = {
-      mcq: Object.fromEntries(mcqs.map((q) => [q.id, Number(answers?.mcq?.[q.id])]).filter(([_, value]) => Number.isInteger(value))),
-      longAnswers: Object.fromEntries(longQuestions.map((q) => [q.id, String(answers?.longAnswers?.[q.id] || "").slice(0, 10000)])),
-      queries: Object.fromEntries(queryQuestions.map((q) => [q.id, String(answers?.queries?.[q.id] || "").slice(0, 4000)])),
+      mcq: Object.fromEntries(mcqs.map((q) => [q.id, Number(submittedMcq[q.id])]).filter((entry) => Number.isInteger(entry[1]))),
+      longAnswers: Object.fromEntries(longQuestions.map((q) => [q.id, String(submittedLong[q.id] || "").slice(0, 10000)])),
+      queries: Object.fromEntries(queryQuestions.map((q) => [q.id, String(submittedQueries[q.id] || "").slice(0, 4000)])),
     };
-    const attempt = await LearningAssessment.findOneAndUpdate(
+    const attempt: any = await LearningAssessment.findOneAndUpdate(
       { localUserId: user.localUserId },
-      { $set: { answers: cleanAnswers, mcqScore, longAnswerScore: 0, queryScore: 0, totalScore: mcqScore, status: "pending_review", submittedAt: new Date(), reviewedAt: null }, $inc: { attempts: 1 } },
+      {
+        $set: {
+          answers: cleanAnswers, mcqScore, longAnswerScore, queryScore, totalScore,
+          status, submittedAt: new Date(), reviewedAt: new Date(),
+        },
+        $inc: { attempts: 1 },
+      },
       { new: true, upsert: true, setDefaultsOnInsert: true },
-    ).lean().exec() as any;
+    ).lean().exec();
+
     return res.json({
       success: true,
-      message: "Assessment submitted. MCQs were auto-graded; long answers and SQL queries are awaiting review before your final result is confirmed.",
-      status: "pending_review",
-      mcqScore,
-      totalScore: mcqScore,
+      message: status === "passed"
+        ? "Congratulations! You passed the SQLWhale final assessment."
+        : "Assessment submitted. Review the feedback and try again; you need at least 40 out of 50 marks to pass.",
+      status,
+      totalScore,
       passMarks: 40,
+      breakdown: { mcqScore, longAnswerScore, queryScore },
+      longResults,
+      queryResults,
       attempt: { status: attempt.status, attempts: attempt.attempts, submittedAt: attempt.submittedAt },
     });
   } catch (error) {
