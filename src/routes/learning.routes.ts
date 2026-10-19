@@ -13,7 +13,7 @@ const modules = [
     { title: "Tables, rows and columns", body: "A table stores records in rows; columns describe each record's attributes.", example: "SELECT * FROM employees;" },
     { title: "Primary and foreign keys", body: "A primary key identifies a row uniquely; a foreign key links related tables.", example: "SELECT e.name, d.department_name FROM employees e JOIN departments d ON e.department_id = d.department_id;" },
   ]},
-  { id: 2, sectionId: "module-2", title: "SELECT & Column Expressions", summary: "Choose columns, use aliases, literals and DISTINCT.", lessons: [
+  { id: 2, sectionId: "module-2", title: "SELECT & Expressions", summary: "Choose columns, use aliases, literals and DISTINCT.", lessons: [
     { title: "Selecting columns", body: "Use SELECT to choose columns and expressions from a source table.", example: "SELECT name, department_id FROM employees;" },
     { title: "Aliases and DISTINCT", body: "Aliases make result labels easier to read. DISTINCT removes duplicate output rows.", example: "SELECT DISTINCT department_id AS department FROM employees;" },
     { title: "Calculated expressions", body: "Arithmetic and expressions can be returned as computed columns.", example: "SELECT name, amount * 1.18 AS amount_with_tax FROM salary;" },
@@ -53,7 +53,7 @@ const modules = [
     { title: "Indexes", body: "Indexes may speed up selected reads but require storage and can slow writes.", example: "CREATE INDEX idx_salary_amount ON salary(amount);" },
     { title: "Query performance", body: "Filter early when appropriate, select needed columns, understand join keys and inspect execution plans where supported.", example: "SELECT employee_id, amount FROM salary WHERE amount >= 50000 ORDER BY amount DESC;" },
   ]},
-  { id: 10, sectionId: "module-10", title: "Advanced SQL & Practical Review", summary: "Bring window functions, CASE expressions and analytical patterns together.", lessons: [
+  { id: 10, sectionId: "module-10", title: "Advanced SQL & Final Revision", summary: "Bring window functions, CASE expressions and analytical patterns together.", lessons: [
     { title: "CASE expressions", body: "CASE evaluates conditions and returns a value for the first matching branch.", example: "SELECT employee_id, CASE WHEN amount >= 55000 THEN 'High' ELSE 'Standard' END AS band FROM salary;" },
     { title: "Window functions", body: "Window functions calculate across related rows without collapsing them into one row per group.", example: "SELECT employee_id, amount, RANK() OVER (ORDER BY amount DESC) AS salary_rank FROM salary;" },
     { title: "Final revision", body: "Review selecting, filtering, grouping, joining and writing safe, readable SQL before starting the final assessment.", example: "SELECT d.department_name, COUNT(e.employee_id) AS team_size FROM departments d LEFT JOIN employees e ON e.department_id = d.department_id GROUP BY d.department_id, d.department_name;" },
