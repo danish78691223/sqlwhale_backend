@@ -119,18 +119,18 @@ function gradeLongAnswer(questionId: string, answer: string): { score: number; f
 }
 
 function gradeSqlQuery(questionId: string, submittedQuery: string, expectedQuery: string): { correct: boolean; feedback: string } {
-  const sql = submittedQuery.trim().replace(/;+\\s*$/, "");
+  const sql = submittedQuery.trim().replace(/;+\s*$/, "");
   if (!sql) return { correct: false, feedback: "No SQL query was provided." };
-  if (!/^(SELECT|WITH)\\b/i.test(sql) || sql.includes(";") ||
-      /\\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|VACUUM|REPLACE)\\b/i.test(sql)) {
+  if (!/^(SELECT|WITH)\b/i.test(sql) || sql.includes(";") ||
+      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|VACUUM|REPLACE)\b/i.test(sql)) {
     return { correct: false, feedback: "Submit one read-only SELECT query for this assessment question." };
   }
 
   const required: Record<string, RegExp[]> = {
-    q1: [/\\bWHERE\\b/i, /\\bORDER\\s+BY\\b/i],
-    q2: [/\\bGROUP\\s+BY\\b/i, /\\bHAVING\\b/i, /\\bCOUNT\\s*\\(/i],
-    q3: [/\\bLEFT\\s+JOIN\\b/i, /\\bON\\b/i],
-    q4: [/\\bWHERE\\b/i, /\\bORDER\\s+BY\\b/i],
+    q1: [/\bWHERE\b/i, /\bORDER\s+BY\b/i],
+    q2: [/\bGROUP\s+BY\b/i, /\bHAVING\b/i, /\bCOUNT\s*\(/i],
+    q3: [/\bLEFT\s+JOIN\b/i, /\bON\b/i],
+    q4: [/\bWHERE\b/i, /\bORDER\s+BY\b/i],
   };
   if ((required[questionId] || []).some((pattern) => !pattern.test(sql))) {
     return { correct: false, feedback: "The query is missing one or more required SQL clauses." };
