@@ -5,6 +5,8 @@ import PasswordResetToken from "../models/PasswordResetToken";
 import Session from "../models/Session";
 import TaskCompletion from "../models/TaskCompletion.js";
 import Task from "../models/Task.js";
+import LearningProgress from "../models/LearningProgress";
+import LearningQuizAttempt from "../models/LearningQuizAttempt";
 import {authenticate,completeLearningProgress,createAccount,createSession,getCurrentUser,getLearningProgress,learningDashboard,listQueryHistory,logout,publicUser} from "../services/mongoAuth";
 import { adoptGuestWorkspace, clearGuestWorkspaceCookie, getGuestWorkspaceId } from "../database/workspaces";
 const router=Router();
@@ -68,6 +70,32 @@ router.get("/query-history",async(req,res)=>{try{const u=await requireUser(req,r
 router.get("/task-completions",async(req,res)=>{try{const u=await requireUser(req,res);if(!u)return;const items=await TaskCompletion.find({localUserId:u.localUserId}).sort({completedAt:-1}).lean().exec();const taskIds=items.map((x:any)=>x.taskId);const tasks=await Task.find({_id:{$in:taskIds}}).lean().exec();const byId=new Map(tasks.map((t:any)=>[String(t._id),t]));res.json({success:true,completions:items.map((x:any)=>{const t=byId.get(String(x.taskId));return{id:String(x.taskId),title:t?.title||"SQL Task",difficulty:t?.difficulty||"Easy",completedAt:x.completedAt};})});}catch(e){console.error(e);res.status(500).json({success:false,error:"Unable to load completed tasks."});}});
 router.get("/learning-dashboard",async(req,res)=>{try{const u=await requireUser(req,res);if(!u)return;res.json({success:true,stats:await learningDashboard(u.localUserId)});}catch(e){console.error(e);res.status(500).json({success:false,error:"Unable to load learning dashboard."});}});
 router.get("/learning-progress",async(req,res)=>{try{const u=await requireUser(req,res);if(!u)return;res.json({success:true,progress:await getLearningProgress(u.localUserId)});}catch(e){console.error(e);res.status(500).json({success:false,error:"Unable to load learning progress."});}});
-router.post("/learning-progress/:sectionId",async(req,res)=>{const sectionId=typeof req.params.sectionId==="string"?req.params.sectionId.trim():"";if(!/^[a-z0-9-]+$/.test(sectionId))return res.status(400).json({success:false,error:"Invalid learning section."});try{const u=await requireUser(req,res);if(!u)return;res.json({success:true,progress:await completeLearningProgress(u.localUserId,sectionId)});}catch(e){console.error(e);res.status(500).json({success:false,error:"Unable to save learning progress."});}});
+router.post("/learning-progress/:sectionId", async (req, res) => {
+  const sectionId = typeof req.params.sectionId === "string" ? req.params.sectionId.trim() : "";
+  if (!/^[a-z0-9-]+$/.test(sectionId)) return res.status(400).json({ success: false, error: "Invalid learning section." });
+  try {
+    const u = await requireUser(req, res);
+    if (!u) return;
+    const moduleMatch = /^module-(\d+)$/.exec(sectionId);
+    if (moduleMatch) {
+      const moduleId = Number(moduleMatch[1]);
+      if (moduleId < 1 || moduleId > 10) return res.status(400).json({ success: false, error: "Invalid module." });
+      const alreadyCompleted = await LearningProgress.exists({ localUserId: u.localUserId, sectionId });
+      if (!alreadyCompleted) {
+        if (moduleId > 1) {
+          const previous = await LearningProgress.exists({ localUserId: u.localUserId, sectionId: "module-" + (moduleId - 1) });
+          if (!previous) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first." });
+          return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module is not available yet." });
+        }
+        const quiz = await LearningQuizAttempt.findOne({ localUserId: u.localUserId, moduleId }).lean().exec();
+        if (!quiz?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass Module 1's quiz with at least 3 out of 5 correct answers first." });
+      }
+    }
+    res.json({ success: true, progress: await completeLearningProgress(u.localUserId, sectionId) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, error: "Unable to save learning progress." });
+  }
+});
 router.post("/logout",async(req,res)=>{try{await logout(req,res);res.json({success:true});}catch(e){console.error(e);res.status(500).json({success:false,error:"Unable to logout."});}});
 export default router;
