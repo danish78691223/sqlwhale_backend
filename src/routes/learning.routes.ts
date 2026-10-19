@@ -243,13 +243,10 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const completed = new Set(completedItems.map((x) => x.sectionId));
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
-    if (id === 1) {
-      const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
-      if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
-    } else {
-      return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module is not available yet." });
-    }
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
+    if (id > 2) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
+    if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
     const fresh = new Set((await LearningProgress.find({ localUserId: user.localUserId }).select("sectionId").lean().exec()).map((x: any) => x.sectionId));
     const count = modules.filter((m) => fresh.has(m.sectionId)).length;
