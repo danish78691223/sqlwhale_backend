@@ -235,7 +235,7 @@ router.post("/assessment/submit", async (req: Request, res: Response) => {
     const submittedMcq = submitted.mcq || {};
     const submittedLong = submitted.longAnswers || {};
     const submittedQueries = submitted.queries || {};
-    const mcqScore = mcqs.reduce((score, q) => score + (Number(submittedMcq[q.id]) === q.answer ? 1 : 0), 0);
+    const mcqScore = mcqs.reduce((score, q) => { const value = submittedMcq[q.id]; return score + (value !== undefined && value !== null && value !== "" && Number(value) === q.answer ? 1 : 0); }, 0);
     const longResults = longQuestions.map((q) => {
       const answer = String(submittedLong[q.id] || "").slice(0, 10000);
       const graded = gradeLongAnswer(q.id, answer);
@@ -251,9 +251,21 @@ router.post("/assessment/submit", async (req: Request, res: Response) => {
     const totalScore = mcqScore + longAnswerScore + queryScore;
     const status = totalScore >= 40 ? "passed" : "failed";
     const cleanAnswers = {
-      mcq: Object.fromEntries(mcqs.map((q) => [q.id, Number(submittedMcq[q.id])]).filter((entry) => Number.isInteger(entry[1]))),
-      longAnswers: Object.fromEntries(longQuestions.map((q) => [q.id, String(submittedLong[q.id] || "").slice(0, 10000)])),
-      queries: Object.fromEntries(queryQuestions.map((q) => [q.id, String(submittedQueries[q.id] || "").slice(0, 4000)])),
+      mcq: mcqs.reduce((answers: Record<string, number>, q) => {
+        const value = submittedMcq[q.id];
+        if (value !== undefined && value !== null && value !== "" && Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) < q.options.length) {
+          answers[q.id] = Number(value);
+        }
+        return answers;
+      }, {}),
+      longAnswers: longQuestions.reduce((answers: Record<string, string>, q) => {
+        answers[q.id] = String(submittedLong[q.id] || "").slice(0, 10000);
+        return answers;
+      }, {}),
+      queries: queryQuestions.reduce((answers: Record<string, string>, q) => {
+        answers[q.id] = String(submittedQueries[q.id] || "").slice(0, 4000);
+        return answers;
+      }, {}),
     };
     const attempt: any = await LearningAssessment.findOneAndUpdate(
       { localUserId: user.localUserId },
