@@ -187,16 +187,25 @@ const moduleOneQuiz = [
   { question: "Which condition correctly checks a missing value?", options: ["value = NULL", "value IS NULL", "value == NULL", "value EQUALS NULL"], answer: 1, explanation: "SQL uses IS NULL because NULL represents an unknown or missing value." },
 ];
 
+const moduleTwoQuiz = [
+  { question: "Which clause names the table that supplies the data?", options: ["SELECT", "FROM", "AS", "DISTINCT"], answer: 1, explanation: "FROM identifies the source table or tables." },
+  { question: "What does SELECT * return?", options: ["Only the primary key", "Only text columns", "All columns in the selected table", "Only unique rows"], answer: 2, explanation: "The asterisk selects all columns. It does not automatically remove duplicate rows." },
+  { question: "What does AS do in SELECT full_name AS student?", options: ["Permanently renames the column", "Creates a temporary result heading", "Deletes duplicate names", "Filters rows"], answer: 1, explanation: "AS gives the output column a query-level alias; the table schema stays unchanged." },
+  { question: "If DISTINCT is used with two columns, what is considered a duplicate?", options: ["Either column repeats", "The whole selected pair repeats", "Only the first column repeats", "Every row is removed"], answer: 1, explanation: "DISTINCT removes duplicate combinations across all selected expressions." },
+  { question: "Which expression joins text in SQLWhale's SQLite sandbox?", options: ["full_name + ' student'", "full_name || ' student'", "JOIN_TEXT(full_name)", "full_name CONCAT ' student'"], answer: 1, explanation: "SQLite supports the || operator for text concatenation." },
+];
+
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  if (id !== 1) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : null;
+  if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
-  if (!answers || typeof answers !== "object" || Array.isArray(answers) || moduleOneQuiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
+  if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
     return res.status(400).json({ success: false, error: "Answer all five quiz questions before submitting." });
   }
-  const score = moduleOneQuiz.reduce((total, question, index) => total + (answers[index] === question.answer ? 1 : 0), 0);
+  const score = quiz.reduce((total, question, index) => total + (answers[index] === question.answer ? 1 : 0), 0);
   const passed = score >= 3;
   try {
     await LearningQuizAttempt.updateOne(
@@ -208,10 +217,10 @@ router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
       success: true,
       moduleId: id,
       score,
-      total: moduleOneQuiz.length,
+      total: quiz.length,
       passed,
       passMark: 3,
-      feedback: moduleOneQuiz.map((question, index) => ({
+      feedback: quiz.map((question, index) => ({
         question: question.question,
         correct: answers[index] === question.answer,
         correctAnswer: question.answer,
