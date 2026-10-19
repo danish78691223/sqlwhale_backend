@@ -2,17 +2,18 @@ import { Router, type Request, type Response } from "express";
 import { getCurrentUser } from "../services/mongoAuth";
 import LearningProgress from "../models/LearningProgress";
 import LearningAssessment from "../models/LearningAssessment";
+import LearningQuizAttempt from "../models/LearningQuizAttempt";
 import db from "../config/database";
 
 const router = Router();
 
 const modules = [
-  { id: 1, sectionId: "module-1", title: "SQL & Relational Database Foundations", summary: "Understand databases, tables, rows, columns, keys and schemas.", lessons: [
+  { id: 1, sectionId: "module-1", title: "SQL & Database Foundations", summary: "Understand databases, tables, rows, columns, keys and schemas.", lessons: [
     { title: "What is SQL?", body: "SQL (Structured Query Language) is used to define, query and manipulate data in relational databases.", example: "SELECT name FROM employees;" },
     { title: "Tables, rows and columns", body: "A table stores records in rows; columns describe each record's attributes.", example: "SELECT * FROM employees;" },
     { title: "Primary and foreign keys", body: "A primary key identifies a row uniquely; a foreign key links related tables.", example: "SELECT e.name, d.department_name FROM employees e JOIN departments d ON e.department_id = d.department_id;" },
   ]},
-  { id: 2, sectionId: "module-2", title: "SELECT & Column Expressions", summary: "Choose columns, use aliases, literals and DISTINCT.", lessons: [
+  { id: 2, sectionId: "module-2", title: "SELECT & Expressions", summary: "Choose columns, use aliases, literals and DISTINCT.", lessons: [
     { title: "Selecting columns", body: "Use SELECT to choose columns and expressions from a source table.", example: "SELECT name, department_id FROM employees;" },
     { title: "Aliases and DISTINCT", body: "Aliases make result labels easier to read. DISTINCT removes duplicate output rows.", example: "SELECT DISTINCT department_id AS department FROM employees;" },
     { title: "Calculated expressions", body: "Arithmetic and expressions can be returned as computed columns.", example: "SELECT name, amount * 1.18 AS amount_with_tax FROM salary;" },
@@ -52,7 +53,7 @@ const modules = [
     { title: "Indexes", body: "Indexes may speed up selected reads but require storage and can slow writes.", example: "CREATE INDEX idx_salary_amount ON salary(amount);" },
     { title: "Query performance", body: "Filter early when appropriate, select needed columns, understand join keys and inspect execution plans where supported.", example: "SELECT employee_id, amount FROM salary WHERE amount >= 50000 ORDER BY amount DESC;" },
   ]},
-  { id: 10, sectionId: "module-10", title: "Advanced SQL & Practical Review", summary: "Bring window functions, CASE expressions and analytical patterns together.", lessons: [
+  { id: 10, sectionId: "module-10", title: "Advanced SQL & Final Revision", summary: "Bring window functions, CASE expressions and analytical patterns together.", lessons: [
     { title: "CASE expressions", body: "CASE evaluates conditions and returns a value for the first matching branch.", example: "SELECT employee_id, CASE WHEN amount >= 55000 THEN 'High' ELSE 'Standard' END AS band FROM salary;" },
     { title: "Window functions", body: "Window functions calculate across related rows without collapsing them into one row per group.", example: "SELECT employee_id, amount, RANK() OVER (ORDER BY amount DESC) AS salary_rank FROM salary;" },
     { title: "Final revision", body: "Review selecting, filtering, grouping, joining and writing safe, readable SQL before starting the final assessment.", example: "SELECT d.department_name, COUNT(e.employee_id) AS team_size FROM departments d LEFT JOIN employees e ON e.department_id = d.department_id GROUP BY d.department_id, d.department_name;" },
@@ -178,6 +179,51 @@ router.get("/progress", async (req: Request, res: Response) => {
   }
 });
 
+const moduleOneQuiz = [
+  { question: "What does SQL stand for?", options: ["Simple Question List", "Structured Query Language", "Sequential Queue Logic", "Standard Quick Link"], answer: 1, explanation: "SQL means Structured Query Language and is used to work with relational data." },
+  { question: "What does a row in a table represent?", options: ["A field name", "A database engine", "One record", "A SQL keyword"], answer: 2, explanation: "A row contains the values describing one record." },
+  { question: "Which key uniquely identifies a row?", options: ["Foreign key", "Primary key", "Sort key", "Alias"], answer: 1, explanation: "A primary key uniquely identifies a row in a table." },
+  { question: "Which command family includes CREATE TABLE?", options: ["DDL", "DML", "DCL", "TCL"], answer: 0, explanation: "DDL defines or changes database structures. CREATE TABLE is a DDL command." },
+  { question: "Which condition correctly checks a missing value?", options: ["value = NULL", "value IS NULL", "value == NULL", "value EQUALS NULL"], answer: 1, explanation: "SQL uses IS NULL because NULL represents an unknown or missing value." },
+];
+
+router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
+  const user = await getCurrentUser(req);
+  if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
+  const id = Number(req.params.id);
+  if (id !== 1) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
+  const answers = req.body?.answers;
+  if (!answers || typeof answers !== "object" || Array.isArray(answers) || moduleOneQuiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
+    return res.status(400).json({ success: false, error: "Answer all five quiz questions before submitting." });
+  }
+  const score = moduleOneQuiz.reduce((total, question, index) => total + (answers[index] === question.answer ? 1 : 0), 0);
+  const passed = score >= 3;
+  try {
+    await LearningQuizAttempt.updateOne(
+      { localUserId: user.localUserId, moduleId: id },
+      { $set: { answers, score, passed, submittedAt: new Date() } },
+      { upsert: true }
+    );
+    return res.json({
+      success: true,
+      moduleId: id,
+      score,
+      total: moduleOneQuiz.length,
+      passed,
+      passMark: 3,
+      feedback: moduleOneQuiz.map((question, index) => ({
+        question: question.question,
+        correct: answers[index] === question.answer,
+        correctAnswer: question.answer,
+        explanation: question.explanation,
+      })),
+    });
+  } catch (error) {
+    console.error("Module quiz save failed:", error);
+    return res.status(500).json({ success: false, error: "Unable to save quiz result." });
+  }
+});
+
 router.post("/modules/:id/complete", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save module completion." });
@@ -188,6 +234,12 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const completed = new Set(completedItems.map((x) => x.sectionId));
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
+    if (id === 1) {
+      const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
+      if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
+    } else {
+      return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module is not available yet." });
+    }
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
     const fresh = new Set((await LearningProgress.find({ localUserId: user.localUserId }).select("sectionId").lean().exec()).map((x: any) => x.sectionId));
