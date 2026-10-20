@@ -251,13 +251,22 @@ const moduleNineQuiz = [
   { question: "Why should you avoid indexing every column without checking workload?", options: ["Indexes cannot be used in WHERE", "Indexes force all queries to fail", "Indexes may consume storage and slow INSERT, UPDATE and DELETE", "Indexes change all text into numbers"], answer: 2, explanation: "Each index has storage and maintenance costs, so choose indexes based on actual query patterns and measurements." }
 ];
 
+const moduleTenQuiz = [
+  { question: "What is a CTE?", options: ["A permanent table created by every SELECT", "A named temporary result used by one statement", "An automatic index", "A command to delete duplicates"], answer: 1, explanation: "A CTE is a named temporary result introduced with WITH and scoped to one SQL statement." },
+  { question: "Which clause splits rows into separate windows for window-function calculations?", options: ["HAVING", "PARTITION BY", "LIMIT", "DISTINCT"], answer: 1, explanation: "PARTITION BY creates separate windows, such as one window per department." },
+  { question: "How does a window function usually differ from GROUP BY?", options: ["It always removes NULL values", "It permanently changes the table", "It adds a calculation while keeping individual rows", "It cannot use ordering"], answer: 2, explanation: "Window functions normally retain the input rows, whereas GROUP BY combines rows into grouped output." },
+  { question: "What is the recommended way to pass user values to SQL from application code?", options: ["Concatenate raw input into the SQL string", "Use parameterized queries", "Remove all WHERE clauses", "Always use SELECT *"], answer: 1, explanation: "Parameterized queries separate SQL structure from values and help protect against SQL injection." },
+  { question: "What is the SQLWhale final assessment pass mark?", options: ["25/50", "30/50", "35/50", "40/50"], answer: 3, explanation: "The final assessment is worth 50 marks and requires at least 40 marks to pass." }
+];
+
+
 
 
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : id === 8 ? moduleEightQuiz : id === 9 ? moduleNineQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : id === 8 ? moduleEightQuiz : id === 9 ? moduleNineQuiz : id === 10 ? moduleTenQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -302,7 +311,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 9) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 10) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
