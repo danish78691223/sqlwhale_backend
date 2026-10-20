@@ -227,11 +227,19 @@ const moduleSixQuiz = [
   { question: "If one employee matches three project rows in a JOIN, how many joined rows can that employee produce?", options: ["Always one", "Zero", "Three", "Only two"], answer: 2, explanation: "A one-to-many relationship can produce one result row for each matching project." },
 ];
 
+const moduleSevenQuiz = [
+  { question: "What is a subquery?", options: ["A query nested inside another SQL statement", "A table constraint", "A database login", "A command that sorts rows"], answer: 0, explanation: "A subquery is a query placed inside another query, for example inside WHERE or FROM." },
+  { question: "Which keyword starts a Common Table Expression (CTE)?", options: ["LET", "WITH", "TEMP", "DEFINE"], answer: 1, explanation: "WITH introduces a named query expression that can be referenced by the statement that follows." },
+  { question: "What does UNION do by default?", options: ["Keeps every duplicate row", "Combines compatible result sets and removes duplicates", "Joins tables using a foreign key", "Sorts each source table separately"], answer: 1, explanation: "UNION combines compatible SELECT results and removes duplicate rows; UNION ALL keeps duplicates." },
+  { question: "What must be true of the SELECT statements combined by UNION?", options: ["They must use the same table", "They must have the same number of result columns with compatible types", "They must have identical WHERE clauses", "They must return exactly the same rows"], answer: 1, explanation: "Each SELECT in a set operation must return the same number of columns, in corresponding compatible types." },
+  { question: "When is UNION ALL usually preferable to UNION?", options: ["When duplicate rows must be removed", "When you need a JOIN", "When duplicate rows should remain and deduplication is unnecessary", "When the query must update data"], answer: 2, explanation: "UNION ALL retains duplicates and can avoid the extra work needed to deduplicate results." },
+];
+
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -276,7 +284,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 6) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 7) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
