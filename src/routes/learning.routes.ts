@@ -114,7 +114,7 @@ const rawQuestions: Omit<Mcq, "id">[] = [
 {level:"Advanced",question:"For filtering by department_id and sorting by salary, which index may be worth evaluating?",options:["An unrelated biography column","A composite index on department_id and salary, then measure the plan","Every possible index without testing","Dropping the primary key"],answer:1,explanation:"A composite index may help predicates and ordering; confirm with a query plan."}
 ];
 const mcqs: Mcq[] = rawQuestions.map((q, i) => ({ ...q, id: `m${String(i + 1).padStart(2, "0")}` }));
-const safeQuestion = ({ answer, ...question }: Mcq) => question;
+const safeQuestion = (question: Mcq) => ({ id: question.id, question: question.question, options: question.options, level: question.level });
 
 
 
