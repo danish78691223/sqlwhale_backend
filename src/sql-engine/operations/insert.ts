@@ -36,7 +36,7 @@ export function executeInsert(query: string): InsertResult {
   ).count;
 
   const specifiedColumns = match[4]
-    ? match[3]
+    ? match[4]
         .split(",")
         .map((column) => column.trim().replace(/^"([^"]+)"$/, "$1"))
         .filter(Boolean)
