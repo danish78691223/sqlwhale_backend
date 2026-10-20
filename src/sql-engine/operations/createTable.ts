@@ -43,7 +43,11 @@ export function executeCreateTable(query: string): CreateTableResult {
   const safeTableName = escapeIdentifier(tableName);
 
   const safeDefinitions = definitions
-    .map((definition) => validateColumnDefinition(definition))
+    .map((definition) => {
+      const foreignKey = definition.match(/^FOREIGN\s+KEY\s*\(([A-Za-z_][A-Za-z0-9_]*)\)\s+REFERENCES\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([A-Za-z_][A-Za-z0-9_]*)\)$/i);
+      if (foreignKey) return `FOREIGN KEY ("${foreignKey[1]}") REFERENCES "${foreignKey[2]}" ("${foreignKey[3]}")`;
+      return validateColumnDefinition(definition);
+    })
     .join(", ");
 
   const createQuery = `
