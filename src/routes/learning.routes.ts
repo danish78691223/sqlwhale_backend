@@ -211,11 +211,19 @@ const moduleFourQuiz = [
   { question: "Which is the simplified logical processing order for a basic query?", options: ["SELECT, WHERE, FROM, LIMIT", "LIMIT, SELECT, FROM, WHERE", "FROM, WHERE, SELECT, ORDER BY, LIMIT", "ORDER BY, FROM, SELECT, WHERE"], answer: 2, explanation: "The simplified logical model starts with FROM, filters with WHERE, produces the SELECT list, then sorts and limits." },
 ];
 
+const moduleFiveQuiz = [
+  { question: "Which aggregate counts every row, including rows with NULL values in other columns?", options: ["COUNT(column_name)", "COUNT(*)", "SUM(*)", "TOTAL(column_name)"], answer: 1, explanation: "COUNT(*) counts every row; COUNT(column_name) skips NULL values." },
+  { question: "Which function calculates the average of numeric values?", options: ["SUM()", "MAX()", "AVG()", "GROUP()"], answer: 2, explanation: "AVG() returns the arithmetic average of non-NULL numeric values." },
+  { question: "What does GROUP BY department_id do?", options: ["Sorts departments alphabetically", "Creates a group for each department_id value", "Deletes duplicate departments", "Filters rows before aggregation"], answer: 1, explanation: "GROUP BY groups rows with the same department_id so aggregates can summarize each group." },
+  { question: "Which clause filters groups after aggregation?", options: ["WHERE", "ORDER BY", "HAVING", "LIMIT"], answer: 2, explanation: "HAVING filters grouped results, often using COUNT, SUM or AVG." },
+  { question: "What does COUNT(phone_number) count when some phone_number values are NULL?", options: ["Every row", "Only rows with a non-NULL phone_number", "Only rows with NULL phone_number", "It changes NULL to zero"], answer: 1, explanation: "COUNT(column) ignores NULL values and counts only non-NULL values in that column." },
+];
+
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -260,7 +268,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 4) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 5) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
