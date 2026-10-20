@@ -243,12 +243,21 @@ const moduleEightQuiz = [
   { question: "What does ROLLBACK do to uncommitted transaction changes?", options: ["Makes them permanent", "Cancels them", "Creates a new table", "Adds a primary key"], answer: 1, explanation: "ROLLBACK cancels uncommitted transaction changes when transaction support is available." }
 ];
 
+const moduleNineQuiz = [
+  { question: "What is the main purpose of a primary key?", options: ["Sort every query automatically", "Uniquely identify each row", "Store a list of values", "Speed up every possible query"], answer: 1, explanation: "A primary key uniquely identifies a row and cannot contain NULL." },
+  { question: "What is a common goal of normalization?", options: ["Duplicate every fact", "Remove all foreign keys", "Reduce unnecessary duplication and update anomalies", "Make every table contain one row"], answer: 2, explanation: "Normalization organizes data to reduce repeated facts and inconsistencies." },
+  { question: "What is a likely cost of adding an index?", options: ["More storage and additional work on writes", "It deletes duplicate rows automatically", "It removes the need for keys", "It always makes every query faster"], answer: 0, explanation: "Indexes take storage and must be maintained when data changes; they do not guarantee faster queries." },
+  { question: "Which command shows a high-level query plan in SQLite?", options: ["SHOW QUERY", "EXPLAIN QUERY PLAN", "DESCRIBE PLAN", "TRACE TABLE"], answer: 1, explanation: "SQLite supports EXPLAIN QUERY PLAN before a SELECT to inspect its high-level execution plan." },
+  { question: "Why should you avoid indexing every column without checking workload?", options: ["Indexes cannot be used in WHERE", "Indexes force all queries to fail", "Indexes may consume storage and slow INSERT, UPDATE and DELETE", "Indexes change all text into numbers"], answer: 2, explanation: "Each index has storage and maintenance costs, so choose indexes based on actual query patterns and measurements." }
+];
+
+
 
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : id === 8 ? moduleEightQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : id === 8 ? moduleEightQuiz : id === 9 ? moduleNineQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -293,7 +302,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 8) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 9) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
