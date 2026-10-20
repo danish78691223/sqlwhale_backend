@@ -219,11 +219,19 @@ const moduleFiveQuiz = [
   { question: "What does COUNT(phone_number) count when some phone_number values are NULL?", options: ["Every row", "Only rows with a non-NULL phone_number", "Only rows with NULL phone_number", "It changes NULL to zero"], answer: 1, explanation: "COUNT(column) ignores NULL values and counts only non-NULL values in that column." },
 ];
 
+const moduleSixQuiz = [
+  { question: "Which rows does an INNER JOIN return?", options: ["Every row from the left table", "Only rows with matching join conditions in both tables", "Only rows with no match", "Every possible row combination"], answer: 1, explanation: "INNER JOIN returns rows where the ON condition matches records from both tables." },
+  { question: "What is the key behavior of a LEFT JOIN?", options: ["It returns only matching rows", "It removes unmatched left rows", "It keeps every left-table row and fills unmatched right columns with NULL", "It sorts the joined rows"], answer: 2, explanation: "LEFT JOIN preserves all rows from the left table; right-side columns are NULL when there is no match." },
+  { question: "What does the ON clause specify in a JOIN?", options: ["The join matching condition", "The final sort order", "Which columns to hide", "How many rows to return"], answer: 0, explanation: "ON defines the condition used to match rows between tables, commonly using related keys." },
+  { question: "Why are table aliases such as employees e and departments d useful?", options: ["They permanently rename tables", "They make references shorter and clearer", "They automatically remove duplicates", "They create foreign keys"], answer: 1, explanation: "Aliases shorten table references and help disambiguate columns in a multi-table query." },
+  { question: "If one employee matches three project rows in a JOIN, how many joined rows can that employee produce?", options: ["Always one", "Zero", "Three", "Only two"], answer: 2, explanation: "A one-to-many relationship can produce one result row for each matching project." },
+];
+
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -268,7 +276,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 5) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 6) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
