@@ -235,11 +235,20 @@ const moduleSevenQuiz = [
   { question: "When is UNION ALL usually preferable to UNION?", options: ["When duplicate rows must be removed", "When you need a JOIN", "When duplicate rows should remain and deduplication is unnecessary", "When the query must update data"], answer: 2, explanation: "UNION ALL retains duplicates and can avoid the extra work needed to deduplicate results." },
 ];
 
+const moduleEightQuiz = [
+  { question: "Which SQL command adds new rows to a table?", options: ["INSERT", "UPDATE", "DELETE", "DROP"], answer: 0, explanation: "INSERT adds new records to a table." },
+  { question: "What may happen when UPDATE is run without a WHERE clause?", options: ["Only the first row changes", "All rows may be updated", "The table is automatically backed up", "The query becomes a SELECT"], answer: 1, explanation: "Without WHERE, UPDATE applies the SET change to every row in the table." },
+  { question: "Which constraint uniquely identifies each row?", options: ["CHECK", "NOT NULL", "PRIMARY KEY", "DEFAULT"], answer: 2, explanation: "A PRIMARY KEY uniquely identifies each row and cannot contain NULL." },
+  { question: "What is the difference between DELETE and DROP TABLE?", options: ["There is no difference", "DELETE removes rows; DROP TABLE removes the table definition", "DROP removes only one row", "DELETE removes the database"], answer: 1, explanation: "DELETE removes records while leaving the table structure; DROP TABLE removes the table itself." },
+  { question: "What does ROLLBACK do to uncommitted transaction changes?", options: ["Makes them permanent", "Cancels them", "Creates a new table", "Adds a primary key"], answer: 1, explanation: "ROLLBACK cancels uncommitted transaction changes when transaction support is available." }
+];
+
+
 router.post("/modules/:id/quiz/submit", async (req: Request, res: Response) => {
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ success: false, error: "Sign in to save your quiz result." });
   const id = Number(req.params.id);
-  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : null;
+  const quiz = id === 1 ? moduleOneQuiz : id === 2 ? moduleTwoQuiz : id === 3 ? moduleThreeQuiz : id === 4 ? moduleFourQuiz : id === 5 ? moduleFiveQuiz : id === 6 ? moduleSixQuiz : id === 7 ? moduleSevenQuiz : id === 8 ? moduleEightQuiz : null;
   if (!quiz) return res.status(404).json({ success: false, error: "This module quiz is not available yet." });
   const answers = req.body?.answers;
   if (!answers || typeof answers !== "object" || Array.isArray(answers) || quiz.some((_q, index) => !Number.isInteger(answers[index]) || answers[index] < 0 || answers[index] > 3)) {
@@ -284,7 +293,7 @@ router.post("/modules/:id/complete", async (req: Request, res: Response) => {
     const module = modules[id - 1];
     if (completed.has(module.sectionId)) return res.json({ success: true, completedModules: [...completed].filter((s) => s.startsWith("module-")).map((s) => Number(s.split("-")[1])), progressPercent: Math.min(100, modules.filter((m) => completed.has(m.sectionId)).length * 10) });
     if (id > 1 && !completed.has(modules[id - 2].sectionId)) return res.status(409).json({ success: false, code: "MODULE_LOCKED", error: "Complete the previous module first to unlock this module." });
-    if (id > 7) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
+    if (id > 8) return res.status(409).json({ success: false, code: "MODULE_QUIZ_UNAVAILABLE", error: "This module quiz is not available yet." });
     const quizAttempt: any = await LearningQuizAttempt.findOne({ localUserId: user.localUserId, moduleId: id }).lean().exec();
     if (!quizAttempt?.passed) return res.status(409).json({ success: false, code: "QUIZ_NOT_PASSED", error: "Pass this module quiz with at least 3 out of 5 correct answers before marking the module complete." });
     await LearningProgress.updateOne({ localUserId: user.localUserId, sectionId: module.sectionId }, { $setOnInsert: { localUserId: user.localUserId, sectionId: module.sectionId, completedAt: new Date() } }, { upsert: true });
