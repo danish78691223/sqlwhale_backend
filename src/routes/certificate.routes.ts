@@ -21,7 +21,7 @@ router.get("/mine", async (req, res) => {
           { localUserId, courseKey, kind: "demo" },
           { $setOnInsert: {
             localUserId, courseKey, kind: "demo",
-            certificateId: "SQLW-DEMO-" + crypto.randomBytes(12).toString("hex").toUpperCase(),
+            certificateId: crypto.randomBytes(12).toString("hex").toUpperCase(),
           } },
           { upsert: true, new: true, setDefaultsOnInsert: true },
         ).lean().exec();
