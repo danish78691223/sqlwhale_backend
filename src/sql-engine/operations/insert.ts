@@ -14,7 +14,7 @@ export interface InsertResult {
 
 export function executeInsert(query: string): InsertResult {
   const match = query.match(
-    /INSERT\s+INTO\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))(?:\s*\(([^)]*)\))?\s+VALUES\s*(.+)$/is
+    /INSERT\s+(OR\s+IGNORE\s+)?INTO\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))(?:\s*\(([^)]*)\))?\s+VALUES\s*(.+)$/is
   );
 
   if (!match) {
@@ -23,7 +23,8 @@ export function executeInsert(query: string): InsertResult {
     );
   }
 
-  const tableName = match[1] ?? match[2];
+  const ignoreConflicts = Boolean(match[1]);
+  const tableName = match[2] ?? match[3];
 
   if (!tableExists(tableName)) {
     throw new Error(`Table '${tableName}' does not exist.`);
@@ -34,14 +35,14 @@ export function executeInsert(query: string): InsertResult {
     db.prepare(`SELECT COUNT(*) as count FROM ${escapeIdentifier(tableName)}`).get() as { count: number }
   ).count;
 
-  const specifiedColumns = match[3]
+  const specifiedColumns = match[4]
     ? match[3]
         .split(",")
         .map((column) => column.trim().replace(/^"([^"]+)"$/, "$1"))
         .filter(Boolean)
     : tableInfo.columns.map((column) => column.name);
 
-  const valuesString = match[4].trim().replace(/;$/, "");
+  const valuesString = match[5].trim().replace(/;$/, "");
 
   const valueGroups = parseValueGroups(valuesString);
 
@@ -54,7 +55,7 @@ export function executeInsert(query: string): InsertResult {
   const placeholders = specifiedColumns.map(() => "?").join(", ");
 
   const insertStatement = db.prepare(`
-    INSERT INTO ${escapeIdentifier(tableName)}
+    INSERT ${ignoreConflicts ? "OR IGNORE " : ""}INTO ${escapeIdentifier(tableName)}
     (${safeColumns})
     VALUES (${placeholders})
   `);
