@@ -54,3 +54,24 @@ export function parseCommand(query: string): SQLCommand {
 export function normalizeQuery(query: string): string {
   return query.trim().replace(/;\s*$/, "");
 }
+
+/** Split a SQL script at semicolons outside quoted strings and comments. */
+export function splitSQLStatements(script: string): string[] {
+  const statements: string[] = [];
+  let current = ""; let quote: string | null = null; let lineComment = false; let blockComment = false;
+  for (let i = 0; i < script.length; i++) {
+    const ch = script[i], next = script[i + 1];
+    if (lineComment) { current += ch; if (ch === "\n") lineComment = false; continue; }
+    if (blockComment) { current += ch; if (ch === "*" && next === "/") { current += next; i++; blockComment = false; } continue; }
+    if (quote) { current += ch; if (ch === "\\" && i + 1 < script.length) { current += script[++i]; continue; } if (ch === quote) { if (next === quote && quote !== String.fromCharCode(96)) { current += next; i++; } else quote = null; } continue; }
+    if (ch === "'" || ch === String.fromCharCode(34) || ch.charCodeAt(0) === 96) { quote = ch; current += ch; continue; }
+    if (ch === "-" && next === "-") { current += ch + next; i++; lineComment = true; continue; }
+    if (ch === "/" && next === "*") { current += ch + next; i++; blockComment = true; continue; }
+    if (ch === ";") { if (current.trim()) statements.push(current.trim()); current = ""; continue; }
+    current += ch;
+  }
+  if (quote) throw new Error("Unterminated quoted string or identifier in SQL script.");
+  if (blockComment) throw new Error("Unterminated block comment in SQL script.");
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
