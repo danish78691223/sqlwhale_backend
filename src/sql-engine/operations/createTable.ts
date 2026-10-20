@@ -13,9 +13,7 @@ export interface CreateTableResult {
 }
 
 export function executeCreateTable(query: string): CreateTableResult {
-  const match = query.match(
-    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]+)\)/i
-  );
+  const match = query.match(/^CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]+)\)\s*;?$/i);
 
   if (!match) {
     throw new Error(
@@ -23,14 +21,16 @@ export function executeCreateTable(query: string): CreateTableResult {
     );
   }
 
-  const tableName = match[1];
-  const columnDefinitions = match[2];
+  const ifNotExists = Boolean(match[1]);
+  const tableName = match[2];
+  const columnDefinitions = match[3];
 
   if (isInternalTableName(tableName)) {
     throw new Error("The table '" + tableName + "' is reserved for internal application use.");
   }
 
   if (tableExists(tableName)) {
+    if (ifNotExists) return { tableName, steps: [{ id: 1, operation: "create_table", targetTable: tableName, columns: getTableInfo(tableName).columns.map((column) => column.name), explanation: "Table already exists; IF NOT EXISTS skipped creation." }] };
     throw new Error(`Table '${tableName}' already exists.`);
   }
 
@@ -129,6 +129,7 @@ function validateColumnDefinition(definition: string): string {
     "REAL",
     "TEXT",
     "NUMERIC",
+    "DECIMAL",
     "BLOB",
     "BOOLEAN",
     "DATE",
