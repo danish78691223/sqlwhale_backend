@@ -7,7 +7,7 @@ import db from "../config/database";
 
 const router = Router();
 
-const modules = [
+export const modules = [
   { id: 1, sectionId: "module-1", title: "SQL & Database Foundations", summary: "Understand databases, tables, rows, columns, keys and schemas.", lessons: [
     { title: "What is SQL?", body: "SQL (Structured Query Language) is used to define, query and manipulate data in relational databases.", example: "SELECT name FROM employees;" },
     { title: "Tables, rows and columns", body: "A table stores records in rows; columns describe each record's attributes.", example: "SELECT * FROM employees;" },
