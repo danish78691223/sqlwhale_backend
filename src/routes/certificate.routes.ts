@@ -5,8 +5,63 @@ import { modules } from "./learning.routes";
 import { MonthlySubscription, SubscriptionPayment } from "../models/SubscriptionPayment";
 import LearningProgress from "../models/LearningProgress";
 import Certificate from "../models/Certificate";
+import User from "../models/User";
 
 const router = Router();
+
+/**
+ * Public verification endpoint. Accepts the printed SQLW- ID or the stored ID.
+ * Only certificates that have been officially issued are considered valid.
+ */
+router.get("/verify/:certificateId", async (req, res) => {
+  try {
+    const suppliedId = String(req.params.certificateId || "").trim().toUpperCase().replace(/\\s+/g, "");
+    const certificateId = suppliedId.startsWith("SQLW-") ? suppliedId.slice(5) : suppliedId;
+
+    if (!certificateId || certificateId.length > 80 || !/^[A-Z0-9-]+$/.test(certificateId)) {
+      return res.status(400).json({ success: false, valid: false, error: "Enter a valid certificate ID." });
+    }
+
+    const certificate: any = await Certificate.findOne({ certificateId, kind: "issued" })
+      .select("certificateId localUserId courseKey createdAt")
+      .lean()
+      .exec();
+
+    if (!certificate) {
+      return res.status(404).json({
+        success: true,
+        valid: false,
+        message: "No officially issued certificate was found for this ID. Check the ID and try again.",
+      });
+    }
+
+    const user: any = await User.findOne({ localUserId: certificate.localUserId })
+      .select("name")
+      .lean()
+      .exec();
+
+    return res.json({
+      success: true,
+      valid: true,
+      certificate: {
+        certificateId: certificate.certificateId,
+        learnerName: user?.name || "SQLWhale Learner",
+        courseName: certificate.courseKey === "sql-fundamentals"
+          ? "SQL Fundamentals & Database Mastery"
+          : certificate.courseKey,
+        issuedAt: certificate.createdAt,
+        issuer: "SQLWhale · WEBXWHALE",
+      },
+    });
+  } catch (error) {
+    console.error("Unable to verify certificate:", error);
+    return res.status(500).json({
+      success: false,
+      valid: false,
+      error: "Unable to verify this certificate right now. Please try again.",
+    });
+  }
+});
 
 router.get("/mine", async (req, res) => {
   try {
