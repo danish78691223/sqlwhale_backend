@@ -15,7 +15,7 @@ const router = Router();
  */
 router.get("/verify/:certificateId", async (req, res) => {
   try {
-    const suppliedId = String(req.params.certificateId || "").trim().toUpperCase().replace(/\\s+/g, "");
+    const suppliedId = String(req.params.certificateId || "").trim().toUpperCase().replace(/\s+/g, "");
     const certificateId = suppliedId.startsWith("SQLW-") ? suppliedId.slice(5) : suppliedId;
 
     if (!certificateId || certificateId.length > 80 || !/^[A-Z0-9-]+$/.test(certificateId)) {
