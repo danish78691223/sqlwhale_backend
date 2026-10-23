@@ -32,7 +32,7 @@ async function deliver(sub: any, payload: object) {
     return false;
   }
 }
-router.get("/config", (_req, res) => res.json({ enabled: ready, publicKey: ready ? publicKey : null }));
+router.get("/config", (_req, res) => res.json({ enabled: ready, publicKey: ready ? publicKey : null, missing: ready ? [] : [!publicKey && "VAPID_PUBLIC_KEY", !privateKey && "VAPID_PRIVATE_KEY", !vapidSubject && "VAPID_SUBJECT"].filter(Boolean) }));
 router.get("/status", async (req, res) => {
   const user = await authenticated(req, res); if (!user) return;
   const count = await PushSubscription.countDocuments({ localUserId: user.localUserId });
