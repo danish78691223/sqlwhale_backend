@@ -7,12 +7,13 @@ const supportedCommands: SQLCommand[] = [
   "UPDATE",
   "DELETE",
   "DROP_TABLE",
+  "ALTER_TABLE",
 ];
 
 export function validateCommand(command: SQLCommand): void {
   if (command === "UNKNOWN") {
     throw new Error(
-      "Unsupported SQL command. SQLWhale currently supports CREATE TABLE, DROP TABLE, INSERT, SELECT, UPDATE and DELETE."
+      "Unsupported SQL command. SQLWhale currently supports CREATE TABLE, ALTER TABLE (ADD COLUMN), DROP TABLE, INSERT, SELECT, UPDATE and DELETE."
     );
   }
 
