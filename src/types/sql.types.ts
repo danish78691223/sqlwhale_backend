@@ -8,6 +8,7 @@ export type SQLCommand =
   | "DELETE"
   | "DROP_TABLE"
   | "ALTER_TABLE"
+  | "GRANT"
   | "UNKNOWN";
 
 export interface SQLRequest {
