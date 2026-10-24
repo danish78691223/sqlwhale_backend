@@ -21,25 +21,59 @@ export function executeSQL(query: string): SQLResponse {
 
     const allSteps: NonNullable<SQLResponse["steps"]> = [];
     let last: SQLResponse | undefined;
+    let transactionOpen = false;
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i];
-      const pragma = statement.match(/^PRAGMA\s+foreign_keys\s*=\s*(ON|OFF|1|0)\s*$/i);
-      if (pragma) {
-        db.pragma("foreign_keys = " + (["ON", "1"].includes(pragma[1].toUpperCase()) ? "ON" : "OFF"));
-        last = { success: true, result: { columns: [], rows: [], rowCount: 0 }, steps: [] };
-        continue;
+      const transactionCommand = statement.match(/^(BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?(?:\s+TRANSACTION)?|START\s+TRANSACTION|COMMIT(?:\s+TRANSACTION)?|END(?:\s+TRANSACTION)?|ROLLBACK(?:\s+TRANSACTION)?)\s*$/i)?.[1].toUpperCase().replace(/\s+/g, " ");
+      try {
+        if (transactionCommand) {
+          if (/^(BEGIN|START)\b/.test(transactionCommand)) {
+            if (transactionOpen) throw new Error("A transaction is already active.");
+            db.exec(transactionCommand.startsWith("START") ? "BEGIN TRANSACTION" : transactionCommand);
+            transactionOpen = true;
+          } else if (/^(COMMIT|END)\b/.test(transactionCommand)) {
+            if (!transactionOpen) throw new Error("No active transaction to commit.");
+            db.exec("COMMIT");
+            transactionOpen = false;
+          } else {
+            if (!transactionOpen) throw new Error("No active transaction to roll back.");
+            db.exec("ROLLBACK");
+            transactionOpen = false;
+          }
+          last = { success: true, result: { columns: [], rows: [], rowCount: 0 }, steps: [] };
+          continue;
+        }
+        const pragma = statement.match(/^PRAGMA\s+foreign_keys\s*=\s*(ON|OFF|1|0)\s*$/i);
+        if (pragma) {
+          if (transactionOpen) throw new Error("PRAGMA foreign_keys cannot be changed inside a transaction.");
+          db.pragma("foreign_keys = " + (["ON", "1"].includes(pragma[1].toUpperCase()) ? "ON" : "OFF"));
+          last = { success: true, result: { columns: [], rows: [], rowCount: 0 }, steps: [] };
+          continue;
+        }
+        if (/^PRAGMA\b/i.test(statement)) {
+          throw new Error("Only PRAGMA foreign_keys = ON/OFF is supported (statement " + (i + 1) + ").");
+        }
+        const result = executeSingleStatement(statement);
+        if (!result.success) {
+          if (transactionOpen) {
+            try { db.exec("ROLLBACK"); } catch {}
+            transactionOpen = false;
+            return { ...result, error: "Statement " + (i + 1) + " failed: " + result.error + " The transaction was rolled back." };
+          }
+          return { ...result, error: "Statement " + (i + 1) + " failed: " + result.error + " Earlier statements may already have been applied." };
+        }
+        if (result.steps?.length) {
+          allSteps.push(...result.steps.map((step, j) => ({ ...step, id: allSteps.length + j + 1 })));
+        }
+        last = result;
+      } catch (statementError) {
+        if (transactionOpen) { try { db.exec("ROLLBACK"); } catch {} transactionOpen = false; }
+        throw new Error("Statement " + (i + 1) + " failed: " + getErrorMessage(statementError));
       }
-      if (/^PRAGMA\b/i.test(statement)) {
-        throw new Error("Only PRAGMA foreign_keys = ON/OFF is supported (statement " + (i + 1) + ").");
-      }
-      const result = executeSingleStatement(statement);
-      if (!result.success) {
-        return { ...result, error: "Statement " + (i + 1) + " failed: " + result.error + " Earlier statements may already have been applied." };
-      }
-      if (result.steps?.length) {
-        allSteps.push(...result.steps.map((step, j) => ({ ...step, id: allSteps.length + j + 1 })));
-      }
-      last = result;
+    }
+    if (transactionOpen) {
+      try { db.exec("ROLLBACK"); } catch {}
+      throw new Error("Transaction was started but not committed. The changes were rolled back.");
     }
     return {
       success: true,
