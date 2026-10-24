@@ -10,6 +10,8 @@ export type SQLCommand =
   | "ALTER_TABLE"
   | "GRANT"
   | "REVOKE"
+  | "TRUNCATE_TABLE"
+  | "REVOKE"
   | "REPLACE"
   | "TRUNCATE_TABLE"
   | "CREATE_INDEX"
