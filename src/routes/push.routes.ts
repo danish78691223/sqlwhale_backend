@@ -54,6 +54,21 @@ router.post("/unsubscribe", async (req, res) => {
   await PushSubscription.deleteOne({ endpoint: req.body.endpoint, localUserId: user.localUserId });
   res.json({ success: true });
 });
+router.post("/test", async (req, res) => {
+  const user = await authenticated(req, res); if (!user) return;
+  if (!ready) return res.status(503).json({ success: false, error: "Push notifications are not configured." });
+  const subs = await PushSubscription.find({ localUserId: user.localUserId }).lean();
+  if (!subs.length) return res.status(404).json({ success: false, error: "No subscribed device found. Enable push notifications on this device first." });
+  const results = await Promise.all(subs.map(s => deliver(s, {
+    title: "SQLWhale demo notification 🐳",
+    body: "It works! SQLWhale can send push notifications to this device.",
+    url: "/account",
+    tag: "sqlwhale-demo-test"
+  })));
+  const sent = results.filter(Boolean).length;
+  return res.json({ success: sent > 0, sent, attempted: subs.length, error: sent ? undefined : "Delivery failed. Check backend logs and this device's notification permissions." });
+});
+
 router.post("/announcement", async (req, res) => {
   const user = await authenticated(req, res); if (!user) return;
   if (user.role !== "admin") return res.status(403).json({ success: false, error: "Admin only." });
