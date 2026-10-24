@@ -9,12 +9,19 @@ const supportedCommands: SQLCommand[] = [
   "DROP_TABLE",
   "ALTER_TABLE",
   "GRANT",
+  "REVOKE",
+  "REPLACE",
+  "TRUNCATE_TABLE",
+  "CREATE_INDEX",
+  "DROP_INDEX",
+  "CREATE_VIEW",
+  "DROP_VIEW",
 ];
 
 export function validateCommand(command: SQLCommand): void {
   if (command === "UNKNOWN") {
     throw new Error(
-      "Unsupported SQL command. SQLWhale currently supports CREATE TABLE, ALTER TABLE (ADD COLUMN), GRANT (simulated SELECT permission), DROP TABLE, INSERT, SELECT, UPDATE and DELETE."
+      "Unsupported SQL command. SQLWhale currently supports CREATE TABLE, ALTER TABLE (ADD COLUMN), GRANT/REVOKE (simulated permissions), CREATE/DROP INDEX/VIEW, TRUNCATE TABLE, REPLACE INTO, DROP TABLE, INSERT, SELECT, UPDATE and DELETE."
     );
   }
 
