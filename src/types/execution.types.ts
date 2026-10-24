@@ -3,6 +3,8 @@ export type ExecutionOperation =
   | "drop_table"
   | "alter_table"
   | "grant"
+  | "revoke"
+  | "truncate_table"
   | "insert"
   | "update"
   | "delete"
