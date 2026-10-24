@@ -94,23 +94,7 @@ function executeSingleStatement(query: string): SQLResponse {
       case "DROP_VIEW": {
         if (/\b(?:sqlite_master|sqlite_schema|webxwhale_|sqlwhale_)/i.test(query)) throw new Error("Access to internal database objects is not allowed.");
         db.exec(query);
-        return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: [{ id: 1, operation: command.toLowerCase(), explanation: "Executed " + command.replace(/_/g, " ") + " successfully." }] };
-      }
-      case "REVOKE": {
-        const match = query.match(/^REVOKE\s+SELECT\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)\s*;?$/i);
-        if (!match) throw new Error("Supported REVOKE syntax: REVOKE SELECT ON table_name FROM user_name;");
-        const [, tableName, userName] = match;
-        if (isInternalTableName(tableName)) throw new Error("Permissions cannot be revoked on internal application tables.");
-        return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: [{ id: 1, operation: "revoke", targetTable: tableName, explanation: "Simulated REVOKE: SELECT permission removed for user '" + userName + "' on table '" + tableName + "'. SQLite does not enforce table-level GRANT/REVOKE permissions; this is a learning simulation only.", metadata: { privilege: "SELECT", tableName, userName, simulated: true } }] };
-      }
-      case "TRUNCATE_TABLE": {
-        const match = query.match(/^TRUNCATE\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s*;?$/i);
-        if (!match) throw new Error("Supported syntax: TRUNCATE TABLE table_name;");
-        const tableName = match[1];
-        if (isInternalTableName(tableName)) throw new Error("This table is reserved for internal application use.");
-        if (!tableExists(tableName)) throw new Error("Table '" + tableName + "' does not exist.");
-        const result = db.prepare("DELETE FROM " + escapeIdentifier(tableName)).run();
-        return { success: true, command, result: { columns: [], rows: [], rowCount: Number(result.changes) }, steps: [{ id: 1, operation: "truncate_table", targetTable: tableName, explanation: "Removed all rows from '" + tableName + "' using a SQLite-compatible TRUNCATE simulation.", metadata: { affectedRows: Number(result.changes), simulated: true } }] };
+        return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: [{ id: 1, operation: command === "CREATE_INDEX" ? "create_index" : command === "DROP_INDEX" ? "drop_index" : command === "CREATE_VIEW" ? "create_view" : "drop_view", explanation: "Executed " + command.replace(/_/g, " ") + " successfully." }] };
       }
       case "GRANT": {
         const match = query.match(/^GRANT\s+SELECT\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)\s+TO\s+([A-Za-z_][A-Za-z0-9_]*)\s*;?$/i);
