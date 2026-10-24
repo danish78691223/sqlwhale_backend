@@ -41,9 +41,9 @@ export function parseCommand(query: string): SQLCommand {
       return "DELETE";
 
     case "DROP":
-      if (/^DROP\s+TABLE/i.test(normalizedQuery)) {
-        return "DROP_TABLE";
-      }
+      if (/^DROP\s+TABLE/i.test(normalizedQuery)) return "DROP_TABLE";
+      if (/^DROP\s+INDEX\b/i.test(normalizedQuery)) return "DROP_INDEX";
+      if (/^DROP\s+VIEW\b/i.test(normalizedQuery)) return "DROP_VIEW";
       return "UNKNOWN";
 
     case "ALTER":
@@ -51,6 +51,24 @@ export function parseCommand(query: string): SQLCommand {
 
     case "GRANT":
       return /^GRANT\s+/i.test(normalizedQuery) ? "GRANT" : "UNKNOWN";
+
+    case "REVOKE":
+      return /^REVOKE\s+/i.test(normalizedQuery) ? "REVOKE" : "UNKNOWN";
+
+    case "REPLACE":
+      return /^REPLACE\s+INTO\b/i.test(normalizedQuery) ? "REPLACE" : "UNKNOWN";
+
+    case "TRUNCATE":
+      return /^TRUNCATE\s+TABLE\b/i.test(normalizedQuery) ? "TRUNCATE_TABLE" : "UNKNOWN";
+
+    case "WITH":
+      return /^WITH\b/i.test(normalizedQuery) ? "SELECT" : "UNKNOWN";
+
+    case "CREATE":
+      if (/^CREATE\s+(?:UNIQUE\s+)?INDEX\b/i.test(normalizedQuery)) return "CREATE_INDEX";
+      if (/^CREATE\s+VIEW\b/i.test(normalizedQuery)) return "CREATE_VIEW";
+      if (/^CREATE\s+TABLE/i.test(normalizedQuery)) return "CREATE_TABLE";
+      return "UNKNOWN";
 
     default:
       return "UNKNOWN";
