@@ -68,6 +68,13 @@ function executeSingleStatement(query: string): SQLResponse {
         const r = executeDropTable(query);
         return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: r.steps };
       }
+      case "GRANT": {
+        const match = query.match(/^GRANT\s+SELECT\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)\s+TO\s+([A-Za-z_][A-Za-z0-9_]*)\s*;?$/i);
+        if (!match) throw new Error("Supported GRANT syntax: GRANT SELECT ON table_name TO user_name;");
+        const [, tableName, userName] = match;
+        if (isInternalTableName(tableName)) throw new Error("Permissions cannot be granted on internal application tables.");
+        return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: [{ id: 1, operation: "grant", targetTable: tableName, explanation: "Simulated GRANT: SELECT permission on table '" + tableName + "' assigned to user '" + userName + "'. SQLWhale runs on SQLite, so this records the learning operation only; it does not create database users or enforce access permissions.", metadata: { privilege: "SELECT", tableName, userName, simulated: true } }] };
+      }
       case "ALTER_TABLE": {
         const match = query.match(/^ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_]*)\s+(INTEGER|INT|REAL|TEXT|NUMERIC|DECIMAL|BLOB|BOOLEAN|DATE|DATETIME|VARCHAR)(?:\s+DEFAULT\s+(\x27[^\x27]*\x27|\x22[^\x22]*\x22|[0-9]+|NULL))?\s*;?$/i);
         if (!match) throw new Error("Supported ALTER TABLE syntax: ALTER TABLE table_name ADD COLUMN column_name TYPE [DEFAULT value];");
