@@ -46,6 +46,9 @@ export function parseCommand(query: string): SQLCommand {
       }
       return "UNKNOWN";
 
+    case "ALTER":
+      return /^ALTER\s+TABLE\b/i.test(normalizedQuery) ? "ALTER_TABLE" : "UNKNOWN";
+
     default:
       return "UNKNOWN";
   }
