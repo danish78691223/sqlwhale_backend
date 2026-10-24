@@ -9,6 +9,13 @@ export type SQLCommand =
   | "DROP_TABLE"
   | "ALTER_TABLE"
   | "GRANT"
+  | "REVOKE"
+  | "REPLACE"
+  | "TRUNCATE_TABLE"
+  | "CREATE_INDEX"
+  | "DROP_INDEX"
+  | "CREATE_VIEW"
+  | "DROP_VIEW"
   | "UNKNOWN";
 
 export interface SQLRequest {
