@@ -49,6 +49,9 @@ export function parseCommand(query: string): SQLCommand {
     case "ALTER":
       return /^ALTER\s+TABLE\b/i.test(normalizedQuery) ? "ALTER_TABLE" : "UNKNOWN";
 
+    case "GRANT":
+      return /^GRANT\s+/i.test(normalizedQuery) ? "GRANT" : "UNKNOWN";
+
     default:
       return "UNKNOWN";
   }
