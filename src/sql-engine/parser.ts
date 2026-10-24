@@ -55,6 +55,15 @@ export function parseCommand(query: string): SQLCommand {
     case "REVOKE":
       return /^REVOKE\s+/i.test(normalizedQuery) ? "REVOKE" : "UNKNOWN";
 
+    case "TRUNCATE":
+      return /^TRUNCATE\s+TABLE\b/i.test(normalizedQuery) ? "TRUNCATE_TABLE" : "UNKNOWN";
+
+    case "WITH":
+      return /^WITH\b/i.test(normalizedQuery) ? "SELECT" : "UNKNOWN";
+
+    case "REVOKE":
+      return /^REVOKE\s+/i.test(normalizedQuery) ? "REVOKE" : "UNKNOWN";
+
     case "REPLACE":
       return /^REPLACE\s+INTO\b/i.test(normalizedQuery) ? "REPLACE" : "UNKNOWN";
 
