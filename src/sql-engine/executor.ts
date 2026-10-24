@@ -8,6 +8,8 @@ import { executeInsert } from "./operations/insert";
 import { executeUpdate } from "./operations/update";
 import { executeDelete } from "./operations/delete";
 import { executeSelect } from "./operations/select";
+import { escapeIdentifier, getTableInfo, tableExists } from "../database/sandbox";
+import { isInternalTableName } from "../database/internalTables";
 import { SQLResponse } from "../types/sql.types";
 
 export function executeSQL(query: string): SQLResponse {
@@ -65,6 +67,17 @@ function executeSingleStatement(query: string): SQLResponse {
       case "DROP_TABLE": {
         const r = executeDropTable(query);
         return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: r.steps };
+      }
+      case "ALTER_TABLE": {
+        const match = query.match(/^ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_]*)\s+(INTEGER|INT|REAL|TEXT|NUMERIC|DECIMAL|BLOB|BOOLEAN|DATE|DATETIME|VARCHAR)(?:\s+DEFAULT\s+(\x27[^\x27]*\x27|\x22[^\x22]*\x22|[0-9]+|NULL))?\s*;?$/i);
+        if (!match) throw new Error("Supported ALTER TABLE syntax: ALTER TABLE table_name ADD COLUMN column_name TYPE [DEFAULT value];");
+        const [, tableName, columnName, columnType, defaultValue] = match;
+        if (isInternalTableName(tableName)) throw new Error("This table is reserved for internal application use.");
+        if (!tableExists(tableName)) throw new Error("Table '" + tableName + "' does not exist.");
+        if (getTableInfo(tableName).columns.some((column) => column.name.toLowerCase() === columnName.toLowerCase())) throw new Error("Column '" + columnName + "' already exists.");
+        db.exec("ALTER TABLE " + escapeIdentifier(tableName) + " ADD COLUMN " + escapeIdentifier(columnName) + " " + columnType.toUpperCase() + (defaultValue ? " DEFAULT " + defaultValue : ""));
+        const columns = getTableInfo(tableName).columns.map((column) => column.name);
+        return { success: true, command, result: { columns: [], rows: [], rowCount: 0 }, steps: [{ id: 1, operation: "alter_table", targetTable: tableName, columns, explanation: "Added column '" + columnName + "' to table '" + tableName + "'.", metadata: { tableName, columnName, columnType: columnType.toUpperCase() } }] };
       }
       case "INSERT": {
         const r = executeInsert(query);
