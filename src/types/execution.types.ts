@@ -2,6 +2,7 @@ export type ExecutionOperation =
   | "create_table"
   | "drop_table"
   | "alter_table"
+  | "grant"
   | "insert"
   | "update"
   | "delete"
