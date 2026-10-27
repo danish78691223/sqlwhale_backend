@@ -371,6 +371,7 @@ router.post("/:id/check", async (req, res) => {
         status: "correct",
         completed: true,
         alreadyCompleted: true,
+        pointsAwarded: 0,
         message: "Task already completed. You do not need to submit it again.",
       });
     }
