@@ -435,12 +435,16 @@ router.post("/:id/check", async (req, res) => {
           { upsert: true },
         );
       }
+      const pointsAwarded = result.correct
+        ? task.difficulty === "Hard" ? 20 : task.difficulty === "Medium" ? 15 : 10
+        : 0;
       return res.json({
         success: true,
         correct: result.correct,
         status: result.correct ? "correct" : "incorrect",
         completed: result.correct,
         taskType: "setup",
+        pointsAwarded,
         message: result.correct
           ? "Correct! Your table structure and records match the task requirements."
           : result.message || result.error || "Your setup does not match the expected table structure and records.",
@@ -556,11 +560,16 @@ router.post("/:id/check", async (req, res) => {
       );
     }
 
+    const pointsAwarded = correct
+      ? task.difficulty === "Hard" ? 20 : task.difficulty === "Medium" ? 15 : 10
+      : 0;
+
     return res.json({
       success: true,
       correct,
       status: correct ? "correct" : "incorrect",
       completed: correct,
+      pointsAwarded,
       message: correct
         ? "Correct! Your output matches the admin's expected output. Task completed."
         : "Incorrect. Your query ran successfully, but its output does not match the expected task output.",
