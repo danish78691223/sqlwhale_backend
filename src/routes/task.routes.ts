@@ -111,6 +111,49 @@ function provisionTaskTables(task: any, workspaceDatabase: any): void {
 }
 
 
+function provisionDepartmentsWithoutEmployeesTask(workspaceDatabase: any): void {
+  // Keep this exercise deterministic even when its admin task record has no
+  // requiredTables/seedRows configuration. Never replace a user's non-empty data.
+  workspaceDatabase.exec(`
+    CREATE TABLE IF NOT EXISTS departments (
+      department_id INTEGER PRIMARY KEY,
+      department_name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS employees (
+      employee_id INTEGER PRIMARY KEY,
+      employee_name TEXT NOT NULL,
+      department_id INTEGER
+    );
+  `);
+
+  const departmentsCount = workspaceDatabase.prepare("SELECT COUNT(*) AS count FROM departments").get() as { count: number };
+  if (Number(departmentsCount?.count ?? 0) === 0) {
+    workspaceDatabase.prepare(
+      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
+    ).run(1, "Engineering");
+    workspaceDatabase.prepare(
+      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
+    ).run(2, "Human Resources");
+    workspaceDatabase.prepare(
+      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
+    ).run(3, "Finance");
+    workspaceDatabase.prepare(
+      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
+    ).run(4, "Marketing");
+  }
+
+  const employeesCount = workspaceDatabase.prepare("SELECT COUNT(*) AS count FROM employees").get() as { count: number };
+  if (Number(employeesCount?.count ?? 0) === 0) {
+    const insertEmployee = workspaceDatabase.prepare(
+      "INSERT INTO employees (employee_id, employee_name, department_id) VALUES (?, ?, ?)"
+    );
+    insertEmployee.run(1, "Aarav Sharma", 1);
+    insertEmployee.run(2, "Priya Patel", 1);
+    insertEmployee.run(3, "Kabir Khan", 2);
+    insertEmployee.run(4, "Meera Joshi", 3);
+  }
+}
+
 function isFailedQueriesTask(task: any): boolean {
   return task.title?.trim().toLowerCase() === FAILED_QUERIES_TASK_TITLE;
 }
@@ -170,6 +213,12 @@ router.post("/:id/start", async (req, res) => {
     if (task.taskType !== "setup" && Array.isArray(task.requiredTables) && task.requiredTables.length) {
       const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
       runWithDatabase(taskWorkspace.database, () => provisionTaskTables(task, taskWorkspace.database));
+      await persistWorkspace(taskWorkspace.key, taskWorkspace.database);
+    }
+
+    if (task.title?.trim().toLowerCase() === "departments without employees") {
+      const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
+      runWithDatabase(taskWorkspace.database, () => provisionDepartmentsWithoutEmployeesTask(taskWorkspace.database));
       await persistWorkspace(taskWorkspace.key, taskWorkspace.database);
     }
 
@@ -494,6 +543,10 @@ router.post("/:id/check", async (req, res) => {
     }
 
     const workspace = await resolveWorkspace(req, res, user.localUserId);
+    if (task.title?.trim().toLowerCase() === "departments without employees") {
+      runWithDatabase(workspace.database, () => provisionDepartmentsWithoutEmployeesTask(workspace.database));
+      await persistWorkspace(workspace.key, workspace.database);
+    }
     const startedAt = Date.now();
     const queryToExecute = isFailedQueriesTask(task)
       ? rewriteFailedQueriesTaskSql(submittedQuery)
