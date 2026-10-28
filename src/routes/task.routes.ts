@@ -229,13 +229,24 @@ router.post("/:id/start", async (req, res) => {
     }
 
 
-    if (task.taskType !== "setup" && Array.isArray(task.requiredTables) && task.requiredTables.length) {
+    const isDepartmentsWithoutEmployeesTask =
+      task.title?.trim().toLowerCase() === "departments without employees";
+
+    // This task owns its canonical schema and fixture data. Do not run the
+    // admin-provided requiredTables configuration first: malformed legacy
+    // configuration was causing Start Task to fail before the fallback ran.
+    if (
+      !isDepartmentsWithoutEmployeesTask &&
+      task.taskType !== "setup" &&
+      Array.isArray(task.requiredTables) &&
+      task.requiredTables.length
+    ) {
       const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
       runWithDatabase(taskWorkspace.database, () => provisionTaskTables(task, taskWorkspace.database));
       await persistWorkspace(taskWorkspace.key, taskWorkspace.database);
     }
 
-    if (task.title?.trim().toLowerCase() === "departments without employees") {
+    if (isDepartmentsWithoutEmployeesTask) {
       const taskWorkspace = await resolveWorkspace(req, res, user.localUserId);
       runWithDatabase(taskWorkspace.database, () => provisionDepartmentsWithoutEmployeesTask(taskWorkspace.database));
       await persistWorkspace(taskWorkspace.key, taskWorkspace.database);
