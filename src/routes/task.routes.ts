@@ -54,7 +54,29 @@ function provisionTaskTables(task: any, workspaceDatabase: any): void {
     const existing = workspaceDatabase.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = lower(?) LIMIT 1"
     ).get(tableName);
-    if (existing) continue;
+
+    // Task tables can already exist in a user's workspace but be empty. In that
+    // case, populate the configured sample rows so query tasks have meaningful
+    // data. Never seed over a table that already contains user data.
+    const seedRowsIfEmpty = () => {
+      const rowCount = workspaceDatabase.prepare('SELECT COUNT(*) AS count FROM "' + tableName + '"').get() as { count: number };
+      if (Number(rowCount?.count ?? 0) > 0) return;
+      const rows = Array.isArray(table.seedRows) ? table.seedRows : [];
+      for (const row of rows) {
+        const columns = table.columns.map((column: any) => String(column.name));
+        const values = columns.map((name: string) => row && typeof row === "object" ? row[name] ?? null : null);
+        const placeholders = columns.map(() => "?").join(", ");
+        workspaceDatabase.prepare(
+          "INSERT INTO \"" + tableName + "\" (" + columns.map((name: string) => "\"" + name + "\"").join(", ") +
+          ") VALUES (" + placeholders + ")"
+        ).run(...values);
+      }
+    };
+
+    if (existing) {
+      seedRowsIfEmpty();
+      continue;
+    }
 
     const columnSql = table.columns.map((column: any) => {
       const name = String(column?.name || "");
