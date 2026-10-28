@@ -152,6 +152,25 @@ function provisionDepartmentsWithoutEmployeesTask(workspaceDatabase: any): void 
     insertEmployee.run(3, "Kabir Khan", 2);
     insertEmployee.run(4, "Meera Joshi", 3);
   }
+
+  // Existing workspace data may have an employee in every department. Ensure
+  // the exercise still has at least one unmatched department without deleting
+  // or rewriting any existing rows.
+  const unmatchedDepartment = workspaceDatabase.prepare(
+    "SELECT d.department_id FROM departments d LEFT JOIN employees e ON d.department_id = e.department_id WHERE e.employee_id IS NULL LIMIT 1"
+  ).get();
+  if (!unmatchedDepartment) {
+    const nextId = workspaceDatabase.prepare(
+      "SELECT COALESCE(MAX(department_id), 0) + 1 AS id FROM departments"
+    ).get() as { id: number };
+    const existingName = workspaceDatabase.prepare(
+      "SELECT department_name FROM departments WHERE department_name = ? LIMIT 1"
+    ).get("Marketing (No Employees)");
+    const departmentName = existingName ? "New Department " + nextId.id : "Marketing (No Employees)";
+    workspaceDatabase.prepare(
+      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
+    ).run(Number(nextId.id), departmentName);
+  }
 }
 
 function isFailedQueriesTask(task: any): boolean {
