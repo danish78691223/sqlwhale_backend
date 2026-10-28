@@ -117,11 +117,12 @@ function provisionDepartmentsWithoutEmployeesTask(workspaceDatabase: any): void 
   workspaceDatabase.exec(`
     CREATE TABLE IF NOT EXISTS departments (
       department_id INTEGER PRIMARY KEY,
-      department_name TEXT NOT NULL
+      department_name TEXT NOT NULL,
+      location TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS employees (
       employee_id INTEGER PRIMARY KEY,
-      employee_name TEXT NOT NULL,
+      name TEXT NOT NULL,
       department_id INTEGER
     );
   `);
@@ -129,23 +130,23 @@ function provisionDepartmentsWithoutEmployeesTask(workspaceDatabase: any): void 
   const departmentsCount = workspaceDatabase.prepare("SELECT COUNT(*) AS count FROM departments").get() as { count: number };
   if (Number(departmentsCount?.count ?? 0) === 0) {
     workspaceDatabase.prepare(
-      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
-    ).run(1, "Engineering");
+      "INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?)"
+    ).run(1, "Engineering", "Pune");
     workspaceDatabase.prepare(
-      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
-    ).run(2, "Human Resources");
+      "INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?)"
+    ).run(2, "Human Resources", "Mumbai");
     workspaceDatabase.prepare(
-      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
-    ).run(3, "Finance");
+      "INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?)"
+    ).run(3, "Finance", "Bengaluru");
     workspaceDatabase.prepare(
-      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
-    ).run(4, "Marketing");
+      "INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?)"
+    ).run(4, "Marketing", "Pune");
   }
 
   const employeesCount = workspaceDatabase.prepare("SELECT COUNT(*) AS count FROM employees").get() as { count: number };
   if (Number(employeesCount?.count ?? 0) === 0) {
     const insertEmployee = workspaceDatabase.prepare(
-      "INSERT INTO employees (employee_id, employee_name, department_id) VALUES (?, ?, ?)"
+      "INSERT INTO employees (employee_id, name, department_id) VALUES (?, ?, ?)"
     );
     insertEmployee.run(1, "Aarav Sharma", 1);
     insertEmployee.run(2, "Priya Patel", 1);
@@ -168,8 +169,8 @@ function provisionDepartmentsWithoutEmployeesTask(workspaceDatabase: any): void 
     ).get("Marketing (No Employees)");
     const departmentName = existingName ? "New Department " + nextId.id : "Marketing (No Employees)";
     workspaceDatabase.prepare(
-      "INSERT INTO departments (department_id, department_name) VALUES (?, ?)"
-    ).run(Number(nextId.id), departmentName);
+      "INSERT INTO departments (department_id, department_name, location) VALUES (?, ?, ?)"
+    ).run(Number(nextId.id), departmentName, "Pune");
   }
 }
 
