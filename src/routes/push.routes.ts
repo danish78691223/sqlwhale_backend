@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import webpush from "web-push";
 import PushSubscription from "../models/PushSubscription";
+import User from "../models/User";
 import { getCurrentUser } from "../services/mongoAuth";
 
 const router = Router();
@@ -24,7 +25,11 @@ function validSubscription(body: any) {
 }
 async function deliver(sub: any, payload: object) {
   try {
-    await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(payload), { TTL: 86400 });
+    const account = await User.findOne({ localUserId: sub.localUserId }).select("currentPlan").lean() as any;
+    const premium = String(account?.currentPlan || "").toLowerCase() === "sqlwhale premium";
+    const icon = premium ? "/Whale-Pro.png" : "/sqlwhale-logo-main.png";
+    const notificationPayload = { ...payload, icon, badge: icon };
+    await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(notificationPayload), { TTL: 86400 });
     return true;
   } catch (error: any) {
     if (error?.statusCode === 404 || error?.statusCode === 410) await PushSubscription.deleteOne({ _id: sub._id });
