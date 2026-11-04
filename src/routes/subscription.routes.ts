@@ -217,8 +217,8 @@ router.post("/bargain/offer", async (req, res) => {
     if (!user) return;
     const offer = Number(req.body?.offer);
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    if (!Number.isSafeInteger(offer) || offer < 1 || offer > BARGAIN_PLAN_PRICE) {
-      return res.status(400).json({ success: false, error: "Enter a whole-number offer between ₹1 and ₹" + BARGAIN_PLAN_PRICE + "." });
+    if (!Number.isSafeInteger(offer) || offer < 149 || offer > BARGAIN_PLAN_PRICE) {
+      return res.status(400).json({ success: false, error: "Enter a whole-number offer between ₹149 and ₹" + BARGAIN_PLAN_PRICE + "." });
     }
     if (!sessionId) return res.status(400).json({ success: false, error: "Start a new bargain session first." });
 
