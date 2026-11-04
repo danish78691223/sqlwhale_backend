@@ -5,8 +5,11 @@ import { BargainState, MonthlySubscription, SubscriptionPayment } from "../model
 import User from "../models/User";
 
 const router = Router();
-const MIN_PRICE = 600;
-const ORIGINAL_PRICE = 1000;
+const BARGAIN_MIN_PRICE = 199;
+const BARGAIN_PLAN_PRICE = 249;
+const BARGAIN_DURATION_MONTHS = 10;
+const BARGAIN_PLAN_LABEL = "SQLWhale Premium · Whale Deal · 10 months";
+const BARGAIN_COUNTER_OFFERS: Record<number, number> = { 1: 239, 2: 219 };
 const CURRENCY = "INR";
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const FIXED_DURATION_PLANS = {
@@ -66,7 +69,9 @@ async function requireUser(req: Request, res: Response) {
 function publicBargain(state: any) {
   return {
     sessionId: String(state._id),
-    originalPrice: ORIGINAL_PRICE,
+    planPrice: BARGAIN_PLAN_PRICE,
+    minimumPrice: BARGAIN_MIN_PRICE,
+    durationMonths: BARGAIN_DURATION_MONTHS,
     attempts: state.attempts,
     remainingAttempts: Math.max(0, 3 - state.attempts),
     locked: state.locked,
@@ -77,7 +82,12 @@ function publicBargain(state: any) {
 router.get("/config", (_req, res) => {
   res.json({
     success: true,
-    originalPrice: ORIGINAL_PRICE,
+    bargainPlan: {
+      price: BARGAIN_PLAN_PRICE,
+      minimumPrice: BARGAIN_MIN_PRICE,
+      durationMonths: BARGAIN_DURATION_MONTHS,
+      label: BARGAIN_PLAN_LABEL,
+    },
     keyId: process.env.RAZORPAY_KEY_ID?.trim() || null,
     ready: Boolean(razorpayCredentials()),
     currency: CURRENCY,
@@ -207,16 +217,12 @@ router.post("/bargain/offer", async (req, res) => {
     if (!user) return;
     const offer = Number(req.body?.offer);
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    if (!Number.isSafeInteger(offer) || offer < 1 || offer > ORIGINAL_PRICE) {
-      return res.status(400).json({ success: false, error: "Enter a whole-number offer between ₹1 and ₹1,000." });
+    if (!Number.isSafeInteger(offer) || offer < 1 || offer > BARGAIN_PLAN_PRICE) {
+      return res.status(400).json({ success: false, error: "Enter a whole-number offer between ₹1 and ₹" + BARGAIN_PLAN_PRICE + "." });
     }
     if (!sessionId) return res.status(400).json({ success: false, error: "Start a new bargain session first." });
 
-    const state: any = await BargainState.findOne({
-      _id: sessionId,
-      localUserId: user.localUserId,
-      expiresAt: { $gt: new Date() },
-    }).exec();
+    const state: any = await BargainState.findOne({ _id: sessionId, localUserId: user.localUserId, expiresAt: { $gt: new Date() } }).exec();
     if (!state) return res.status(404).json({ success: false, error: "Bargain session expired. Start again." });
     if (state.locked || state.attempts >= 3) {
       return res.status(409).json({ success: false, error: "Final price is already locked.", bargain: publicBargain(state) });
@@ -227,33 +233,28 @@ router.post("/bargain/offer", async (req, res) => {
     let dealPrice: number | null = null;
     let counterOffer: number | null = null;
 
-    if (offer >= MIN_PRICE) {
+    if (offer >= BARGAIN_MIN_PRICE) {
       dealPrice = offer;
       state.acceptedPrice = offer;
       state.locked = true;
-      message = "Deal Done! 🎉 Aapka bargaining skill gazab hai! Pay ₹" + offer + " and unlock SQLWhale Premium.";
+      const savings = BARGAIN_PLAN_PRICE - offer;
+      message = savings > 0
+        ? "Deal cracked! 🐳 Aapne ₹" + savings + " save kiye. ₹" + offer + " mein poore 10 months Premium — Whale impressed hai!"
+        : "Offer accepted! 🎉 ₹249 mein 10-month Premium Deal locked. Chaliye checkout karein!";
     } else if (state.attempts === 1) {
-      counterOffer = 900;
-      message = "Error 404: Itna kam amount accept nahi ho sakta! 😅 Whale ka first counter-offer ₹900 hai.";
+      counterOffer = BARGAIN_COUNTER_OFFERS[1];
+      message = "₹" + offer + "? Whale ko thoda aur chahiye 😄 Pehla counter ₹239 hai. Accept karo ya next offer try karo!";
     } else if (state.attempts === 2) {
-      counterOffer = 750;
-      message = "SELECT * FROM offers WHERE patience = 'high'; 🤔 Ab ₹750 mein deal kar lo, boss!";
+      counterOffer = BARGAIN_COUNTER_OFFERS[2];
+      message = "Ab deal paas aa rahi hai! 🤝 Whale ne apna counter ₹219 tak drop kar diya.";
     } else {
-      counterOffer = MIN_PRICE;
-      state.acceptedPrice = MIN_PRICE;
+      state.acceptedPrice = BARGAIN_MIN_PRICE;
       state.locked = true;
-      message = "Bas! 🛑 Whale ki final keemat ₹600 hai. Isse ek rupya bhi kam nahi ho sakta!";
+      message = "Last round! 🐳 Whale ka final deal ₹199 hai — 10 months Premium, one-time payment. Deal locked!";
     }
 
     await state.save();
-    res.json({
-      success: true,
-      message,
-      counterOffer,
-      dealPrice,
-      final: state.locked,
-      bargain: publicBargain(state),
-    });
+    res.json({ success: true, message, counterOffer, dealPrice, final: state.locked, bargain: publicBargain(state) });
   } catch (error) {
     console.error("Bargain offer error:", error);
     res.status(500).json({ success: false, error: "Unable to process your offer." });
@@ -269,13 +270,9 @@ router.post("/bargain/accept", async (req, res) => {
     if (!sessionId || !Number.isSafeInteger(price)) {
       return res.status(400).json({ success: false, error: "A valid bargain session and counter-offer price are required." });
     }
-    const state: any = await BargainState.findOne({
-      _id: sessionId,
-      localUserId: user.localUserId,
-      expiresAt: { $gt: new Date() },
-    }).exec();
+    const state: any = await BargainState.findOne({ _id: sessionId, localUserId: user.localUserId, expiresAt: { $gt: new Date() } }).exec();
     if (!state) return res.status(404).json({ success: false, error: "Bargain session expired. Start again." });
-    const allowedPrice = state.attempts === 1 ? 900 : state.attempts === 2 ? 750 : null;
+    const allowedPrice = BARGAIN_COUNTER_OFFERS[state.attempts] ?? null;
     if (state.locked || allowedPrice !== price || state.attempts < 1 || state.attempts > 2) {
       return res.status(409).json({ success: false, error: "That counter-offer is no longer available." });
     }
@@ -284,7 +281,7 @@ router.post("/bargain/accept", async (req, res) => {
     await state.save();
     res.json({
       success: true,
-      message: "Deal accepted! 🎉 Checkout at ₹" + price + " to unlock SQLWhale Premium.",
+      message: "Whale deal accepted! 🎉 ₹" + price + " for " + BARGAIN_DURATION_MONTHS + " months. Your price is locked.",
       dealPrice: price,
       final: true,
       bargain: publicBargain(state),
@@ -721,32 +718,34 @@ router.post("/order", async (req, res) => {
     if (user.currentPlan === "SQLWhale Premium") {
       return res.status(409).json({ success: false, error: "SQLWhale Premium is already active on this account." });
     }
-    const direct = req.body?.direct === true;
+    if (req.body?.direct === true) {
+      return res.status(400).json({ success: false, error: "Choose a listed plan or complete the 10-month Whale Bargain first." });
+    }
+
     const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
-    let amountRupees = ORIGINAL_PRICE;
-    if (!direct) {
-      const state: any = await BargainState.findOne({
-        _id: sessionId,
-        localUserId: user.localUserId,
-        expiresAt: { $gt: new Date() },
-      }).exec();
-      if (!state || !state.locked || !Number.isSafeInteger(state.acceptedPrice) || state.acceptedPrice < MIN_PRICE) {
-        return res.status(400).json({ success: false, error: "Complete bargaining first. A valid deal is required before checkout." });
-      }
-      amountRupees = state.acceptedPrice;
+    if (!sessionId) return res.status(400).json({ success: false, error: "Complete the Whale Bargain before checkout." });
+    const state: any = await BargainState.findOne({ _id: sessionId, localUserId: user.localUserId, expiresAt: { $gt: new Date() } }).exec();
+    if (!state || !state.locked || !Number.isSafeInteger(state.acceptedPrice) || state.acceptedPrice < BARGAIN_MIN_PRICE || state.acceptedPrice > BARGAIN_PLAN_PRICE) {
+      return res.status(400).json({ success: false, error: "Complete bargaining first. A valid 10-month deal is required before checkout." });
     }
     if (!razorpayCredentials()) {
       return res.status(503).json({ success: false, error: "Payments are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to Render." });
     }
 
-    const amountPaise = amountRupees * 100;
+    const amountPaise = state.acceptedPrice * 100;
     const order = await razorpayRequest<{ id: string; amount: number; currency: string }>("/orders", {
       method: "POST",
       body: JSON.stringify({
         amount: amountPaise,
         currency: CURRENCY,
         receipt: "sw_" + Date.now() + "_" + crypto.randomBytes(4).toString("hex"),
-        notes: { localUserId: user.localUserId, plan: "SQLWhale Premium", ...(sessionId ? { bargainSessionId: sessionId } : {}), purchaseType: direct ? "direct" : "bargain" },
+        notes: {
+          localUserId: user.localUserId,
+          plan: BARGAIN_PLAN_LABEL,
+          bargainSessionId: sessionId,
+          durationMonths: String(BARGAIN_DURATION_MONTHS),
+          purchaseType: "bargain",
+        },
       }),
     });
     const consentAt = new Date();
@@ -756,8 +755,9 @@ router.post("/order", async (req, res) => {
       amountPaise,
       currency: CURRENCY,
       status: "created",
-      plan: "SQLWhale Premium",
-      purchaseType: direct ? "direct" : "bargain",
+      plan: BARGAIN_PLAN_LABEL,
+      purchaseType: "bargain",
+      durationMonths: BARGAIN_DURATION_MONTHS,
       termsAcceptedAt: consentAt,
       refundPolicyAcceptedAt: consentAt,
     });
@@ -765,7 +765,7 @@ router.post("/order", async (req, res) => {
       success: true,
       order: { id: order.id, amount: order.amount, currency: order.currency },
       keyId: process.env.RAZORPAY_KEY_ID?.trim(),
-      plan: "SQLWhale Premium",
+      plan: BARGAIN_PLAN_LABEL,
     });
   } catch (error: any) {
     console.error("Subscription order error:", error?.message || error);
@@ -820,11 +820,18 @@ router.post("/verify", async (req, res) => {
     savedPayment.status = "paid";
     savedPayment.verifiedAt = new Date();
 
-    if (savedPayment.purchaseType === "fixed_duration") {
+    if (savedPayment.purchaseType === "fixed_duration" || savedPayment.purchaseType === "bargain") {
       const months = Number(savedPayment.durationMonths);
-      const expectedAmountPaise = months === 5 ? 14900 : months === 10 ? 24900 : null;
-      if (!expectedAmountPaise || Number(savedPayment.amountPaise) !== expectedAmountPaise) {
-        return res.status(400).json({ success: false, verified: false, error: "The saved fixed-duration plan details do not match the amount." });
+      const amountPaise = Number(savedPayment.amountPaise);
+      const isBargain = savedPayment.purchaseType === "bargain";
+      const validFixedAmount = months === 5
+        ? amountPaise === 14900
+        : months === 10 && amountPaise === 24900;
+      const validBargainAmount = months === BARGAIN_DURATION_MONTHS
+        && amountPaise >= BARGAIN_MIN_PRICE * 100
+        && amountPaise <= BARGAIN_PLAN_PRICE * 100;
+      if (!(isBargain ? validBargainAmount : validFixedAmount)) {
+        return res.status(400).json({ success: false, verified: false, error: "The saved plan duration and payment amount do not match an available SQLWhale plan." });
       }
       const activeTimedPayment: any = await SubscriptionPayment.findOne({
         localUserId: user.localUserId,
@@ -837,7 +844,7 @@ router.post("/verify", async (req, res) => {
     await savedPayment.save();
 
     let recurringCancellationPending = false;
-    if (savedPayment.purchaseType === "fixed_duration") {
+    if (savedPayment.purchaseType === "fixed_duration" || savedPayment.purchaseType === "bargain") {
       const previousMonthly: any = await MonthlySubscription.findOne({
         localUserId: user.localUserId,
         cancelAtCycleEnd: false,
