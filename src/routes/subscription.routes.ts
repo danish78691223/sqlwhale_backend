@@ -70,7 +70,6 @@ function publicBargain(state: any) {
   return {
     sessionId: String(state._id),
     planPrice: BARGAIN_PLAN_PRICE,
-    minimumPrice: BARGAIN_MIN_PRICE,
     durationMonths: BARGAIN_DURATION_MONTHS,
     attempts: state.attempts,
     remainingAttempts: Math.max(0, 3 - state.attempts),
@@ -84,7 +83,6 @@ router.get("/config", (_req, res) => {
     success: true,
     bargainPlan: {
       price: BARGAIN_PLAN_PRICE,
-      minimumPrice: BARGAIN_MIN_PRICE,
       durationMonths: BARGAIN_DURATION_MONTHS,
       label: BARGAIN_PLAN_LABEL,
     },
