@@ -118,8 +118,10 @@ function seedFreshData(): void {
   transaction();
 }
 
-export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefaults?: boolean } = {}): void {
+export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefaults?: boolean; restoreDefaults?: boolean } = {}): void {
   const employeesExist = tableExists("employees");
+  const defaultTables = ["employees", "departments", "projects", "salary"];
+  const allDefaultTablesMissing = defaultTables.every((tableName) => !tableExists(tableName));
 
   if (options.allowLegacyMigration !== false && employeesExist && !hasColumn("employees", "department_id")) {
     const legacyEmployees = db
@@ -220,10 +222,10 @@ export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefa
     return;
   }
 
-  // A restored workspace may intentionally contain no employees table (or
-  // may use custom departments/projects/salary tables). Never add the sample
-  // schema to an existing user's workspace; seed only a brand-new workspace.
-  if (!employeesExist && options.seedDefaults !== false) {
+  // Restore the starter schema once for older saved workspaces that contain
+  // user tables but lost every starter table during the previous destructive
+  // migration. Never overwrite a partial/custom starter-table set.
+  if (allDefaultTablesMissing && (options.seedDefaults !== false || options.restoreDefaults === true)) {
     createLearningSchema();
     seedFreshData();
   }
