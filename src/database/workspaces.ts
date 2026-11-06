@@ -62,7 +62,7 @@ async function openWorkspace(key: string): Promise<Database.Database> {
 
   // Defaults and schema migrations run only inside this isolated workspace.
   // The seeder is guarded and does not drop user-created tables.
-  runWithDatabase(database, () => seedDatabase());
+  runWithDatabase(database, () => seedDatabase({ allowLegacyMigration: false }));
 
   if (!saved?.data) await persistWorkspace(key, database);
   return database;
