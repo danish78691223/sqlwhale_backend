@@ -118,10 +118,10 @@ function seedFreshData(): void {
   transaction();
 }
 
-export function seedDatabase(): void {
+export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefaults?: boolean } = {}): void {
   const employeesExist = tableExists("employees");
 
-  if (employeesExist && !hasColumn("employees", "department_id")) {
+  if (options.allowLegacyMigration !== false && employeesExist && !hasColumn("employees", "department_id")) {
     const legacyEmployees = db
       .prepare(`SELECT employee_id, name, department, salary FROM employees`)
       .all() as LegacyEmployee[];
@@ -220,7 +220,10 @@ export function seedDatabase(): void {
     return;
   }
 
-  if (!employeesExist) {
+  // A restored workspace may intentionally contain no employees table (or
+  // may use custom departments/projects/salary tables). Never add the sample
+  // schema to an existing user's workspace; seed only a brand-new workspace.
+  if (!employeesExist && options.seedDefaults !== false) {
     createLearningSchema();
     seedFreshData();
   }
