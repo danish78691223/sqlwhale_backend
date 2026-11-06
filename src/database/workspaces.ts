@@ -83,7 +83,7 @@ export async function persistWorkspace(key: string, database: Database.Database)
       throw new Error(`SQLite workspace checkpoint is busy for ${key}; refusing to save an incomplete snapshot.`);
     }
     const data = fs.readFileSync(workspacePath(key));
-    if (data.length < 16 || data.subarray(0, 16).toString("binary") !== "SQLite format 3\\0") {
+    if (data.length < 16 || data.subarray(0, 16).toString("binary") !== "SQLite format 3\0") {
       throw new Error(`SQLite workspace snapshot is invalid for ${key}; MongoDB snapshot was not updated.`);
     }
     await SQLWorkspace.updateOne(
