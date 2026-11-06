@@ -65,9 +65,16 @@ async function openWorkspace(key: string): Promise<Database.Database> {
   runWithDatabase(database, () => seedDatabase({
     allowLegacyMigration: false,
     seedDefaults: !saved?.data,
+    restoreDefaults: saved?.defaultsRestored !== true,
   }));
 
-  if (!saved?.data) await persistWorkspace(key, database);
+  if (!saved?.data || saved?.defaultsRestored !== true) {
+    await persistWorkspace(key, database);
+    await SQLWorkspace.updateOne(
+      { workspaceKey: key },
+      { $set: { defaultsRestored: true } },
+    ).exec();
+  }
   return database;
 }
 
