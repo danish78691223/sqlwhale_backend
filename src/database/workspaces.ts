@@ -75,8 +75,14 @@ async function openWorkspace(key: string): Promise<Database.Database> {
 export async function persistWorkspace(key: string, database: Database.Database): Promise<void> {
   const previous = persistenceQueues.get(key) ?? Promise.resolve();
   const next = previous.catch(() => undefined).then(async () => {
-    database.pragma("wal_checkpoint(FULL)");
+    const checkpoint = database.pragma("wal_checkpoint(TRUNCATE)") as Array<{ busy: number; log: number; checkpointed: number }>;
+    if (checkpoint?.[0]?.busy) {
+      throw new Error(`SQLite workspace checkpoint is busy for ${key}; refusing to save an incomplete snapshot.`);
+    }
     const data = fs.readFileSync(workspacePath(key));
+    if (data.length < 16 || data.subarray(0, 16).toString("binary") !== "SQLite format 3\\0") {
+      throw new Error(`SQLite workspace snapshot is invalid for ${key}; MongoDB snapshot was not updated.`);
+    }
     await SQLWorkspace.updateOne(
       { workspaceKey: key },
       { $set: { data } },
