@@ -118,10 +118,10 @@ function seedFreshData(): void {
   transaction();
 }
 
-export function seedDatabase(): void {
+export function seedDatabase(options: { allowLegacyMigration?: boolean } = {}): void {
   const employeesExist = tableExists("employees");
 
-  if (employeesExist && !hasColumn("employees", "department_id")) {
+  if (options.allowLegacyMigration !== false && employeesExist && !hasColumn("employees", "department_id")) {
     const legacyEmployees = db
       .prepare(`SELECT employee_id, name, department, salary FROM employees`)
       .all() as LegacyEmployee[];
