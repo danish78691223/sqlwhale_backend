@@ -29,7 +29,7 @@ const SQL_COLUMN_TYPES: Record<string, string> = {
   INTEGER: "INTEGER", REAL: "REAL", TEXT: "TEXT", BOOLEAN: "INTEGER", DATE: "TEXT",
 };
 
-function provisionTaskTables(task: any, workspaceDatabase: any): void {
+export function provisionTaskTables(task: any, workspaceDatabase: any): void {
   const configured = Array.isArray(task.requiredTables) ? task.requiredTables : [];
   if (!configured.length) return;
 
