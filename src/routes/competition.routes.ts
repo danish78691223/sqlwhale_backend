@@ -149,7 +149,7 @@ router.post("/:id/tasks/:taskId/submit", async (req, res) => {
       message = correct ? "Correct! Your competition tables and records match the task requirements." : result.message || result.error || "The resulting tables do not match the task requirements.";
       executionError = result.error || null;
       if (correct) {
-        const steps = [{ id: 1, operation: "create_table", explanation: "Created and populated the required competition tables." }];
+        const steps = [{ id: 1, operation: "create_table" as const, explanation: "Created and populated the required competition tables." }];
         sqlResponse = { success: true, command: "CREATE_TABLE", result: { columns: [], rows: [], rowCount: 0 }, execution: { steps, stepCount: steps.length, explanation: generateExplanation(steps), stepExplanations: generateStepExplanations(steps) }, visualization: prepareVisualizationSteps(steps) };
       }
     } else {
