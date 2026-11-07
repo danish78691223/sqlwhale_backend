@@ -62,16 +62,15 @@ async function openWorkspace(key: string): Promise<Database.Database> {
 
   // Defaults and schema migrations run only inside this isolated workspace.
   // The seeder is guarded and does not drop user-created tables.
-  runWithDatabase(database, () => seedDatabase({
+  const starterSchemaRestored = runWithDatabase(database, () => seedDatabase({
     allowLegacyMigration: false,
     seedDefaults: !saved?.data,
-    // Always check for a completely missing starter schema. This only creates
-    // the four starter tables when all four are absent; it never drops or
-    // overwrites user-created tables or a partial starter-table set.
+    // Restore only when all four starter tables are missing. Existing user
+    // tables and partial starter schemas are left untouched.
     restoreDefaults: true,
   }));
 
-  if (!saved?.data || saved?.defaultsRestored !== true) {
+  if (!saved?.data || saved?.defaultsRestored !== true || starterSchemaRestored) {
     await persistWorkspace(key, database);
     await SQLWorkspace.updateOne(
       { workspaceKey: key },
