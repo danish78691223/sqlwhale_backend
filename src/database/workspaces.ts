@@ -65,7 +65,10 @@ async function openWorkspace(key: string): Promise<Database.Database> {
   runWithDatabase(database, () => seedDatabase({
     allowLegacyMigration: false,
     seedDefaults: !saved?.data,
-    restoreDefaults: saved?.defaultsRestored !== true,
+    // Always check for a completely missing starter schema. This only creates
+    // the four starter tables when all four are absent; it never drops or
+    // overwrites user-created tables or a partial starter-table set.
+    restoreDefaults: true,
   }));
 
   if (!saved?.data || saved?.defaultsRestored !== true) {
