@@ -118,7 +118,7 @@ function seedFreshData(): void {
   transaction();
 }
 
-export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefaults?: boolean; restoreDefaults?: boolean } = {}): void {
+export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefaults?: boolean; restoreDefaults?: boolean } = {}): boolean {
   const employeesExist = tableExists("employees");
   const defaultTables = ["employees", "departments", "projects", "salary"];
   const allDefaultTablesMissing = defaultTables.every((tableName) => !tableExists(tableName));
@@ -219,7 +219,7 @@ export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefa
       }
     })();
 
-    return;
+    return true;
   }
 
   // Restore the starter schema once for older saved workspaces that contain
@@ -228,5 +228,8 @@ export function seedDatabase(options: { allowLegacyMigration?: boolean; seedDefa
   if (allDefaultTablesMissing && (options.seedDefaults !== false || options.restoreDefaults === true)) {
     createLearningSchema();
     seedFreshData();
+    return true;
   }
+
+  return false;
 }
