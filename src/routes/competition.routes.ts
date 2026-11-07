@@ -114,7 +114,16 @@ router.post("/:id/tasks/:taskId/submit", async (req, res) => {
     const competition: any = await Competition.findById(req.params.id).lean().exec();
     if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
     const now = Date.now();
-    if (competition.status !== "live" || (competition.startsAt && now < new Date(competition.startsAt).getTime()) || (competition.endsAt && now > new Date(competition.endsAt).getTime())) return res.status(409).json({ success: false, code: "COMPETITION_NOT_LIVE", error: "Competition submissions are only accepted during the official live period." });
+    const isAdminPreview = user.role === "admin" && (
+      competition.status !== "live" ||
+      (competition.startsAt && now < new Date(competition.startsAt).getTime()) ||
+      (competition.endsAt && now > new Date(competition.endsAt).getTime())
+    );
+    if (!isAdminPreview && (competition.status !== "live" ||
+      (competition.startsAt && now < new Date(competition.startsAt).getTime()) ||
+      (competition.endsAt && now > new Date(competition.endsAt).getTime()))) {
+      return res.status(409).json({ success: false, code: "COMPETITION_NOT_LIVE", error: "Competition submissions are only accepted during the official live period." });
+    }
     const registration = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: user.localUserId }).lean().exec();
     if (!registration) return res.status(403).json({ success: false, code: "NOT_REGISTERED", error: "Register for this competition before submitting tasks." });
     if (!(competition.taskIds || []).some((id: any) => String(id) === req.params.taskId)) return res.status(404).json({ success: false, error: "This task is not assigned to the selected competition." });
@@ -161,6 +170,16 @@ router.post("/:id/tasks/:taskId/submit", async (req, res) => {
       }
     }
     if (taskType === "setup" || task.requiredTables?.length) await persistWorkspace(workspace.key, workspace.database);
+    if (isAdminPreview) {
+      return res.json({
+        success: true, preview: true, correct,
+        status: correct ? "correct" : (executionError ? "invalid" : "incorrect"),
+        completed: false, pointsAwarded: 0, totalTaskPoints: 0,
+        taskType, taskTitle: task.title,
+        message: "Admin preview only — " + message + " No competition points or ranking records were created.",
+        executionError, sqlResponse, executionTimeMs: Date.now() - startedAt,
+      });
+    }
     const points = correct ? Number(competition.points?.[task.difficulty] ?? (task.difficulty === "Hard" ? 15 : task.difficulty === "Medium" ? 10 : 5)) : 0;
     const alreadyCorrect = Boolean(existing?.isCorrect);
     const awardedNow = correct && !alreadyCorrect ? points : 0;
