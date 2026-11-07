@@ -123,6 +123,15 @@ export async function resolveWorkspace(req: Request, res: Response, localUserId?
   return { key, database: await openWorkspace(key), guestId, isGuest: true };
 }
 
+/** Dedicated durable SQLite workspace for one participant in one competition. */
+export async function resolveCompetitionWorkspace(localUserId: string, competitionId: string) {
+  if (!localUserId || !/^[a-f0-9]{24}$/i.test(competitionId)) {
+    throw new Error("Invalid competition workspace identity.");
+  }
+  const key = `competition:${competitionId}:${localUserId}`;
+  return { key, database: await openWorkspace(key) };
+}
+
 export function getGuestWorkspaceId(req: Request): string | null {
   const id = cookieValue(req, GUEST_WORKSPACE_COOKIE);
   return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
