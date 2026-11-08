@@ -113,8 +113,6 @@ router.get("/:id/leaderboard", async (req, res) => {
     const competition: any = await Competition.findById(req.params.id).lean().exec();
     if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
     const user: any = await getCurrentUser(req);
-    const registered = user ? await CompetitionRegistration.exists({ competitionId: competition._id, localUserId: user.localUserId }) : false;
-    if (!registered && user?.role !== "admin") return res.status(403).json({ success: false, error: "Register for this competition to view its leaderboard." });
     let ranked: any[] = Array.isArray(competition.frozenRanking) && competition.frozenRanking.length
       ? competition.frozenRanking
       : [];
