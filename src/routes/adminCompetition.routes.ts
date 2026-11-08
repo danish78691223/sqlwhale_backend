@@ -163,10 +163,13 @@ router.post("/:id/approve-winners", async (req, res) => {
     if (!competition.finalizedAt || !Array.isArray(competition.frozenRanking)) return res.status(409).json({ success: false, error: "Finalize the competition ranking before approving winners." });
     const topN = Math.max(0, Number(competition.certificateTopN ?? 3));
     const winners = competition.frozenRanking.filter((entry: any) => entry.rank <= topN);
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL;
+    const base = (process.env.FRONTEND_URL || process.env.WEB_URL || "https://sqlwhale.webxwhale.com").replace(/\\/+$/, "");
     const issued = [];
     for (const winner of winners) {
       const registration: any = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
-      if (!registration) continue;
+      if (!registration?.userEmail) continue;
       let certificate: any = await CompetitionCertificate.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
       if (!certificate) {
         try {
@@ -181,9 +184,35 @@ router.post("/:id/approve-winners", async (req, res) => {
           certificate = await CompetitionCertificate.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
         }
       }
-      if (certificate) issued.push({ certificateId: certificate.certificateId, rank: certificate.rank, participantName: certificate.participantName, participantEmail: certificate.participantEmail, status: certificate.status, emailStatus: certificate.emailStatus });
+      if (!certificate) continue;
+      let emailStatus = certificate.emailStatus;
+      let emailError = certificate.emailError || null;
+      if (apiKey && from && emailStatus !== "sent") {
+        const verifyUrl = base + "/verify-certificate?type=competition&id=" + encodeURIComponent(certificate.certificateId);
+        const pdfUrl = base + "/competition-certificate/" + encodeURIComponent(certificate.certificateId);
+        try {
+          const mail = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from, to: [certificate.participantEmail],
+              subject: "Your SQLWhale competition certificate",
+              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#172033"><h1>Congratulations, ${certificate.participantName}!</h1><p>You secured rank #${certificate.rank} in <strong>${competition.title}</strong>.</p><p>Your competition certificate has been approved by SQLWhale.</p><p><a href="${pdfUrl}" style="display:inline-block;padding:12px 18px;background:#facc15;color:#111;text-decoration:none;font-weight:bold;border-radius:8px">View & Download Certificate</a></p><p>Verify your certificate: <a href="${verifyUrl}">${verifyUrl}</a></p><p style="color:#64748b;font-size:12px">SQLWhale · WEBXWHALE</p></div>`,
+            }),
+          });
+          if (!mail.ok) { emailError = (await mail.text()).slice(0, 1000); emailStatus = "failed"; }
+          else { emailStatus = "sent"; emailError = null; }
+        } catch (mailError: any) { emailStatus = "failed"; emailError = String(mailError?.message || mailError).slice(0, 1000); }
+        await CompetitionCertificate.updateOne({ _id: certificate._id }, { $set: { emailStatus, emailError, ...(emailStatus === "sent" ? { emailSentAt: new Date() } : {}) } });
+      } else if (!apiKey || !from) {
+        emailStatus = "failed"; emailError = "Resend email is not configured (RESEND_API_KEY and RESEND_FROM_EMAIL/FROM_EMAIL required).";
+        await CompetitionCertificate.updateOne({ _id: certificate._id }, { $set: { emailStatus, emailError } });
+      }
+      issued.push({ certificateId: certificate.certificateId, rank: certificate.rank, participantName: certificate.participantName, participantEmail: certificate.participantEmail, status: certificate.status, emailStatus, emailError });
     }
-    return res.json({ success: true, approvedCount: issued.length, certificates: issued, message: "Winner certificates approved. Email delivery will be available after mail delivery is configured." });
+    const sent = issued.filter(x => x.emailStatus === "sent").length;
+    const failed = issued.filter(x => x.emailStatus === "failed").length;
+    return res.json({ success: true, approvedCount: issued.length, emailSentCount: sent, emailFailedCount: failed, certificates: issued, message: `${issued.length} winner certificate(s) approved. ${sent} email(s) sent; ${failed} need retry.` });
   } catch (error) {
     console.error("Winner approval error:", error);
     return res.status(500).json({ success: false, error: "Unable to approve competition winners." });
