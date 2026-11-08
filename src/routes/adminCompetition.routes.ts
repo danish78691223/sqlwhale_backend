@@ -165,7 +165,7 @@ router.post("/:id/approve-winners", async (req, res) => {
     const winners = competition.frozenRanking.filter((entry: any) => entry.rank <= topN);
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL;
-    const base = (process.env.FRONTEND_URL || process.env.WEB_URL || "https://sqlwhale.webxwhale.com").replace(/\\/+$/, "");
+    const base = (process.env.FRONTEND_URL || process.env.WEB_URL || "https://sqlwhale.webxwhale.com").replace(/\/+$/, "");
     const issued = [];
     for (const winner of winners) {
       const registration: any = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
