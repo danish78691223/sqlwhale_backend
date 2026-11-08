@@ -13,6 +13,7 @@ import { buildTaskExpectedResult, buildTaskExpectedSetup, executeAndGradeSetup, 
 import { generateExplanation, generateStepExplanations } from "../services/explanation.service";
 import { prepareVisualizationSteps } from "../services/visualization.service";
 import { getCurrentUser } from "../services/mongoAuth";
+import { getAllTables, getTableInfo } from "../database/sandbox";
 
 const router = Router();
 
@@ -104,6 +105,40 @@ router.get("/:id/me", async (req, res) => {
   } catch (error) {
     console.error("Competition progress error:", error);
     res.status(500).json({ success: false, error: "Unable to load competition progress." });
+  }
+});
+
+router.get("/:id/workspace/tables", async (req, res) => {
+  try {
+    const user: any = await getCurrentUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Sign in to view your competition workspace." });
+    const competition: any = await Competition.findById(req.params.id).lean().exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    const registration = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: user.localUserId }).lean().exec();
+    if (!registration && user.role !== "admin") return res.status(403).json({ success: false, error: "Register for this competition to view its workspace." });
+    const workspace = await resolveCompetitionWorkspace(user.localUserId, String(competition._id));
+    const tables = runWithDatabase(workspace.database, () => getAllTables());
+    return res.json({ success: true, tables });
+  } catch (error) {
+    console.error("Competition workspace schema error:", error);
+    return res.status(500).json({ success: false, error: "Unable to load competition workspace tables." });
+  }
+});
+
+router.get("/:id/workspace/tables/:tableName", async (req, res) => {
+  try {
+    const user: any = await getCurrentUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Sign in to view your competition workspace." });
+    const competition: any = await Competition.findById(req.params.id).lean().exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    const registration = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: user.localUserId }).lean().exec();
+    if (!registration && user.role !== "admin") return res.status(403).json({ success: false, error: "Register for this competition to view its workspace." });
+    const workspace = await resolveCompetitionWorkspace(user.localUserId, String(competition._id));
+    const table = runWithDatabase(workspace.database, () => getTableInfo(String(req.params.tableName)));
+    return res.json({ success: true, table });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to retrieve competition table.";
+    return res.status(404).json({ success: false, error: message });
   }
 });
 
