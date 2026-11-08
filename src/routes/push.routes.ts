@@ -25,7 +25,7 @@ function validSubscription(body: any) {
 }
 async function deliver(sub: any, payload: object) {
   try {
-    const account = await User.findOne({ localUserId: sub.localUserId }).select("currentPlan").lean() as any;
+    const account = sub.localUserId ? await User.findOne({ localUserId: sub.localUserId }).select("currentPlan").lean() as any : null;
     const premium = String(account?.currentPlan || "").toLowerCase() === "sqlwhale premium";
     const icon = premium ? "/Whale-Pro.png" : "/sqlwhale-logo-main.png";
     const notificationPayload = { ...payload, icon, badge: icon };
