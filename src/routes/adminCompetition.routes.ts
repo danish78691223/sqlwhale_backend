@@ -1,9 +1,11 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import crypto from "crypto";
 import Competition from "../models/Competition";
 import Task from "../models/Task";
 import CompetitionRegistration from "../models/CompetitionRegistration";
 import CompetitionSubmission from "../models/CompetitionSubmission";
+import CompetitionCertificate from "../models/CompetitionCertificate";
 import { getCurrentUser } from "../services/mongoAuth";
 
 const router = Router();
@@ -150,6 +152,41 @@ router.post("/:id/finalize", async (req, res) => {
   } catch (error) {
     console.error("Competition finalization error:", error);
     return res.status(500).json({ success: false, error: "Unable to finalize competition." });
+  }
+});
+
+router.post("/:id/approve-winners", async (req, res) => {
+  try {
+    const admin: any = await requireAdmin(req, res); if (!admin) return;
+    const competition: any = await Competition.findById(req.params.id).lean().exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    if (!competition.finalizedAt || !Array.isArray(competition.frozenRanking)) return res.status(409).json({ success: false, error: "Finalize the competition ranking before approving winners." });
+    const topN = Math.max(0, Number(competition.certificateTopN ?? 3));
+    const winners = competition.frozenRanking.filter((entry: any) => entry.rank <= topN);
+    const issued = [];
+    for (const winner of winners) {
+      const registration: any = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
+      if (!registration) continue;
+      let certificate: any = await CompetitionCertificate.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
+      if (!certificate) {
+        try {
+          certificate = await CompetitionCertificate.create({
+            competitionId: competition._id, localUserId: winner.localUserId,
+            certificateId: crypto.randomBytes(12).toString("hex").toUpperCase(),
+            rank: winner.rank, participantName: registration.displayName, participantEmail: registration.userEmail,
+            status: "approved", approvedBy: String(admin.localUserId || admin._id), approvedAt: new Date(),
+          });
+        } catch (error: any) {
+          if (error?.code !== 11000) throw error;
+          certificate = await CompetitionCertificate.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
+        }
+      }
+      if (certificate) issued.push({ certificateId: certificate.certificateId, rank: certificate.rank, participantName: certificate.participantName, participantEmail: certificate.participantEmail, status: certificate.status, emailStatus: certificate.emailStatus });
+    }
+    return res.json({ success: true, approvedCount: issued.length, certificates: issued, message: "Winner certificates approved. Email delivery will be available after mail delivery is configured." });
+  } catch (error) {
+    console.error("Winner approval error:", error);
+    return res.status(500).json({ success: false, error: "Unable to approve competition winners." });
   }
 });
 
