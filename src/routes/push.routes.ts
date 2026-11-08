@@ -14,7 +14,7 @@ else console.warn("Web Push disabled: configure VAPID_PUBLIC_KEY, VAPID_PRIVATE_
 
 async function authenticated(req: Request, res: Response) {
   const user = await getCurrentUser(req);
-  if (!user) res.status(401).json({ success: false, error: "Sign in to enable notifications." });
+  if (!user) res.status(401).json({ success: false, error: "Sign in to manage account notifications." });
   return user as any;
 }
 const validEndpoint = (value: unknown) => typeof value === "string" && value.length < 2048 && /^https:\/\//.test(value);
@@ -25,7 +25,7 @@ function validSubscription(body: any) {
 }
 async function deliver(sub: any, payload: object) {
   try {
-    const account = await User.findOne({ localUserId: sub.localUserId }).select("currentPlan").lean() as any;
+    const account = sub.localUserId ? await User.findOne({ localUserId: sub.localUserId }).select("currentPlan").lean() as any : null;
     const premium = String(account?.currentPlan || "").toLowerCase() === "sqlwhale premium";
     const icon = premium ? "/Whale-Pro.png" : "/sqlwhale-logo-main.png";
     const notificationPayload = { ...payload, icon, badge: icon };
@@ -44,19 +44,27 @@ router.get("/status", async (req, res) => {
   res.json({ success: true, devices: count });
 });
 router.post("/subscribe", async (req, res) => {
-  const user = await authenticated(req, res); if (!user) return;
   if (!ready) return res.status(503).json({ success: false, error: "Push notifications are not configured." });
   if (!validSubscription(req.body?.subscription)) return res.status(400).json({ success: false, error: "Invalid push subscription." });
   const { endpoint, keys } = req.body.subscription;
+  // Login is optional. If a valid session exists, associate this endpoint with that account.
+  const user = await getCurrentUser(req).catch(() => null);
   const dailyEnabled = req.body.dailyEnabled !== false;
   const announcementsEnabled = req.body.announcementsEnabled !== false;
-  await PushSubscription.findOneAndUpdate({ endpoint }, { $set: { localUserId: user.localUserId, keys, dailyEnabled, announcementsEnabled } }, { upsert: true, new: true });
-  res.json({ success: true });
+  await PushSubscription.findOneAndUpdate(
+    { endpoint },
+    { $set: { localUserId: user?.localUserId || null, keys, dailyEnabled, announcementsEnabled } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  res.json({ success: true, authenticated: Boolean(user) });
 });
 router.post("/unsubscribe", async (req, res) => {
-  const user = await authenticated(req, res); if (!user) return;
   if (!validEndpoint(req.body?.endpoint)) return res.status(400).json({ success: false, error: "Invalid endpoint." });
-  await PushSubscription.deleteOne({ endpoint: req.body.endpoint, localUserId: user.localUserId });
+  const user = await getCurrentUser(req).catch(() => null);
+  const filter: Record<string, unknown> = { endpoint: req.body.endpoint };
+  // Allow an anonymous endpoint to remove itself; authenticated endpoint must belong to that account.
+  if (user?.localUserId) filter.localUserId = user.localUserId;
+  await PushSubscription.deleteOne(filter);
   res.json({ success: true });
 });
 router.post("/test", async (req, res) => {

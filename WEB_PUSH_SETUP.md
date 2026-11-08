@@ -1,21 +1,41 @@
 # SQLWhale Web Push setup
 
-Web Push is implemented, but it is **disabled until server VAPID keys are configured**.
+SQLWhale supports install-independent Web Push for visitors who explicitly grant browser notification permission. A PWA installation is not required on supported desktop and Android browsers.
 
-1. Run `npx web-push generate-vapid-keys` once on your development machine. Keep the private key secret.
+## Backend configuration
+
+1. Generate a VAPID key pair once: `npx web-push generate-vapid-keys`. Keep the private key secret.
 2. Configure these **backend Render environment variables**:
    - `VAPID_PUBLIC_KEY`: generated public key
    - `VAPID_PRIVATE_KEY`: generated private key (never put in Next.js public variables)
-   - `VAPID_SUBJECT`: `mailto:your-support-email@example.com` (replace with a real address)
+   - `VAPID_SUBJECT`: a real support mailto address, e.g. `mailto:hello@webxwhale.com`
    - `PUSH_CRON_SECRET`: a long random secret
-3. Install backend dependencies and refresh the lockfile: `npm install`. Commit the updated `package-lock.json`. Deploy backend and frontend.
-4. Users sign in and opt in from **Account → Push notifications**. Browsers require a user gesture for notification permission; no automatic permission prompt is shown.
-5. Send announcements from **/admin/notifications** (admin account required). API: `POST /api/push/announcement` with `{ "title": "...", "body": "...", "url": "/run-query" }`.
-6. For daily reminders, create an external scheduled POST (e.g. cron-job.org) to `https://YOUR_BACKEND_HOST/api/push/daily/send` with header `Authorization: Bearer YOUR_PUSH_CRON_SECRET`. Run it once daily at your desired time. The endpoint is idempotent per UTC date for successful deliveries; failed deliveries are retried on a subsequent invocation.
+3. Keep the public key and private key paired. Rotating VAPID keys invalidates browser subscriptions created with the previous public key.
+4. Deploy backend and frontend after the changes are merged.
 
-Notes:
-- An installed PWA is recommended; a plain home-screen bookmark may not support background push on every platform.
-- Notifications are sent only to devices with an active push subscription. Device permission can be revoked in browser/system settings.
-- Daily delivery requires an external scheduler; Render's web service alone does not guarantee a daily job.
-- This feature does not require Firebase.
-- Existing `package-lock.json` needs regeneration after adding `web-push` and `@types/web-push`; otherwise `npm ci` may fail.
+## Visitor opt-in
+
+1. A visitor opens SQLWhale in a supported browser.
+2. SQLWhale registers `/sw.js` and displays its optional notification explainer.
+3. The visitor presses the enable control; only then does the browser permission prompt appear.
+4. On approval, the browser PushSubscription is stored in MongoDB. Login and PWA installation are not required on supported platforms.
+5. If the visitor later signs in on that same browser, the endpoint is linked to their SQLWhale account. Existing account-level preferences remain available in Account → Push notifications.
+
+The prompt is suppressed after the visitor chooses either option, using browser-local storage. Clearing site data can make it appear again.
+
+## Sending notifications
+
+- Send announcements from `/admin/notifications` (admin account required). API: `POST /api/push/announcement` with `{ "title": "...", "body": "...", "url": "/run-query" }`.
+- This broadcast targets all active subscriptions that have announcements enabled, including anonymous visitor subscriptions.
+- For daily reminders, configure an external scheduled POST (e.g. cron-job.org) to `https://YOUR_BACKEND_HOST/api/push/daily/send` with header `Authorization: Bearer YOUR_PUSH_CRON_SECRET`. Run it at the desired time. The endpoint is idempotent per UTC date for successful deliveries; failed deliveries can be retried.
+- Expired endpoints (HTTP 404/410) are automatically removed.
+
+## Platform limitations and privacy
+
+- Chrome/Edge on Android and desktop can receive Web Push without installing SQLWhale as a PWA.
+- iPhone/iPad requires iOS/iPadOS 16.4 or later and the user must add SQLWhale to the Home Screen before enabling Web Push.
+- Browser and operating-system notification permissions must remain enabled. Users can revoke permission at any time.
+- Only visitors who explicitly opt in are subscribed. Merely visiting the page does not grant notification permission or create a subscription.
+- Push payloads contain the notification content and destination only; anonymous subscriptions are stored without a SQLWhale account ID.
+- Daily delivery requires an external scheduler; a Render web service alone does not guarantee a daily job.
+- This feature uses the Web Push API and VAPID; Firebase is not required.
