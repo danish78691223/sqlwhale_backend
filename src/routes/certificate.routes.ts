@@ -6,6 +6,8 @@ import { MonthlySubscription, SubscriptionPayment } from "../models/Subscription
 import LearningProgress from "../models/LearningProgress";
 import Certificate from "../models/Certificate";
 import User from "../models/User";
+import CompetitionCertificate from "../models/CompetitionCertificate";
+import Competition from "../models/Competition";
 
 const router = Router();
 
@@ -60,6 +62,43 @@ router.get("/verify/:certificateId", async (req, res) => {
       valid: false,
       error: "Unable to verify this certificate right now. Please try again.",
     });
+  }
+});
+
+router.get("/competition/mine", async (req, res) => {
+  try {
+    const user: any = await getCurrentUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Authentication required." });
+    const certificates = await CompetitionCertificate.find({ localUserId: user.localUserId, status: "approved" }).sort({ approvedAt: -1 }).lean().exec();
+    const competitionIds = [...new Set(certificates.map((item: any) => String(item.competitionId)))];
+    const competitions = await Competition.find({ _id: { $in: competitionIds } }).select("title").lean().exec();
+    const names = new Map(competitions.map((item: any) => [String(item._id), item.title]));
+    return res.json({ success: true, certificates: certificates.map((item: any) => ({
+      certificateId: item.certificateId, competitionId: String(item.competitionId), competitionTitle: names.get(String(item.competitionId)) || "SQLWhale Competition",
+      rank: item.rank, participantName: item.participantName, issuedAt: item.approvedAt, emailStatus: item.emailStatus,
+      verificationUrl: `/verify-certificate?type=competition&id=${encodeURIComponent(item.certificateId)}`,
+    })) });
+  } catch (error) {
+    console.error("Competition certificates mine error:", error);
+    return res.status(500).json({ success: false, error: "Unable to load competition certificates." });
+  }
+});
+
+router.get("/competition/verify/:certificateId", async (req, res) => {
+  try {
+    const certificateId = String(req.params.certificateId || "").trim().toUpperCase();
+    if (!/^[A-F0-9]{24}$/.test(certificateId)) return res.status(400).json({ success: true, valid: false, message: "Invalid certificate ID." });
+    const certificate: any = await CompetitionCertificate.findOne({ certificateId, status: "approved" }).lean().exec();
+    if (!certificate) return res.status(404).json({ success: true, valid: false, message: "No approved competition certificate was found for this ID." });
+    const competition: any = await Competition.findById(certificate.competitionId).select("title").lean().exec();
+    return res.json({ success: true, valid: true, certificate: {
+      certificateId: certificate.certificateId, learnerName: certificate.participantName,
+      competitionName: competition?.title || "SQLWhale Competition", rank: certificate.rank,
+      issuedAt: certificate.approvedAt, issuer: "SQLWhale · WEBXWHALE",
+    } });
+  } catch (error) {
+    console.error("Competition certificate verification error:", error);
+    return res.status(500).json({ success: false, valid: false, error: "Unable to verify this competition certificate." });
   }
 });
 

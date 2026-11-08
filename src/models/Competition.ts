@@ -16,6 +16,8 @@ const CompetitionSchema = new Schema({
   startsAt: { type: Date, default: null },
   endsAt: { type: Date, default: null },
   certificateTopN: { type: Number, default: 3, min: 0, max: 100 },
+  finalizedAt: { type: Date, default: null },
+  frozenRanking: { type: [Schema.Types.Mixed], default: [] },
   createdBy: { type: String, default: null },
 }, { timestamps: true, collection: "sqlwhale_competitions" });
 

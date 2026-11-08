@@ -1,7 +1,11 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import crypto from "crypto";
 import Competition from "../models/Competition";
 import Task from "../models/Task";
+import CompetitionRegistration from "../models/CompetitionRegistration";
+import CompetitionSubmission from "../models/CompetitionSubmission";
+import CompetitionCertificate from "../models/CompetitionCertificate";
 import { getCurrentUser } from "../services/mongoAuth";
 
 const router = Router();
@@ -87,6 +91,102 @@ router.patch("/:id", async (req, res) => {
     if (error?.code === 11000) return res.status(409).json({ success: false, error: "A competition with this URL slug already exists." });
     console.error("Admin competition update error:", error);
     res.status(500).json({ success: false, error: "Unable to update competition." });
+  }
+});
+
+router.get("/:id/results", async (req, res) => {
+  try {
+    if (!await requireAdmin(req, res)) return;
+    const competition: any = await Competition.findById(req.params.id).lean().exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    const [registrations, submissions] = await Promise.all([
+      CompetitionRegistration.find({ competitionId: competition._id }).lean().exec(),
+      CompetitionSubmission.find({ competitionId: competition._id, isCorrect: true }).lean().exec(),
+    ]);
+    const byUser = new Map<string, any>();
+    for (const registration of registrations as any[]) byUser.set(registration.localUserId, {
+      localUserId: registration.localUserId, name: registration.displayName, email: registration.userEmail,
+      registeredAt: registration.registeredAt, completedTasks: 0, points: 0, lastSolvedAt: 0,
+    });
+    for (const submission of submissions as any[]) {
+      const row = byUser.get(submission.localUserId);
+      if (!row) continue;
+      row.completedTasks += 1; row.points += Number(submission.pointsAwarded || 0);
+      row.lastSolvedAt = Math.max(row.lastSolvedAt, submission.firstCorrectAt ? new Date(submission.firstCorrectAt).getTime() : 0);
+    }
+    const ranked = [...byUser.values()].filter(x => x.completedTasks > 0)
+      .sort((x, y) => y.points - x.points || y.completedTasks - x.completedTasks || x.lastSolvedAt - y.lastSolvedAt || x.name.localeCompare(y.name))
+      .map((x, i) => ({ ...x, rank: i + 1 }));
+    return res.json({ success: true, competition: { id: String(competition._id), title: competition.title, status: competition.status, finalizedAt: competition.finalizedAt || null }, participants: [...byUser.values()], ranking: competition.finalizedAt ? competition.frozenRanking : ranked });
+  } catch (error) {
+    console.error("Competition results error:", error);
+    return res.status(500).json({ success: false, error: "Unable to load competition results." });
+  }
+});
+
+router.post("/:id/finalize", async (req, res) => {
+  try {
+    if (!await requireAdmin(req, res)) return;
+    const competition: any = await Competition.findById(req.params.id).exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    if (competition.finalizedAt) return res.status(409).json({ success: false, error: "Competition ranking is already frozen.", finalizedAt: competition.finalizedAt });
+    if (competition.status !== "completed") return res.status(409).json({ success: false, error: "Set the competition status to completed before finalizing results." });
+    const [registrations, submissions] = await Promise.all([
+      CompetitionRegistration.find({ competitionId: competition._id }).lean().exec(),
+      CompetitionSubmission.find({ competitionId: competition._id, isCorrect: true }).lean().exec(),
+    ]);
+    const byUser = new Map<string, any>();
+    for (const registration of registrations as any[]) byUser.set(registration.localUserId, { localUserId: registration.localUserId, name: registration.displayName, completedTasks: 0, points: 0, lastSolvedAt: 0 });
+    for (const submission of submissions as any[]) {
+      const row = byUser.get(submission.localUserId); if (!row) continue;
+      row.completedTasks += 1; row.points += Number(submission.pointsAwarded || 0);
+      row.lastSolvedAt = Math.max(row.lastSolvedAt, submission.firstCorrectAt ? new Date(submission.firstCorrectAt).getTime() : 0);
+    }
+    const frozenRanking = [...byUser.values()].filter(x => x.completedTasks > 0)
+      .sort((x, y) => y.points - x.points || y.completedTasks - x.completedTasks || x.lastSolvedAt - y.lastSolvedAt || x.name.localeCompare(y.name))
+      .map((x, i) => ({ ...x, rank: i + 1 }));
+    competition.frozenRanking = frozenRanking;
+    competition.finalizedAt = new Date();
+    await competition.save();
+    return res.json({ success: true, finalized: true, finalizedAt: competition.finalizedAt, totalRankedUsers: frozenRanking.length, ranking: frozenRanking });
+  } catch (error) {
+    console.error("Competition finalization error:", error);
+    return res.status(500).json({ success: false, error: "Unable to finalize competition." });
+  }
+});
+
+router.post("/:id/approve-winners", async (req, res) => {
+  try {
+    const admin: any = await requireAdmin(req, res); if (!admin) return;
+    const competition: any = await Competition.findById(req.params.id).lean().exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    if (!competition.finalizedAt || !Array.isArray(competition.frozenRanking)) return res.status(409).json({ success: false, error: "Finalize the competition ranking before approving winners." });
+    const topN = Math.max(0, Number(competition.certificateTopN ?? 3));
+    const winners = competition.frozenRanking.filter((entry: any) => entry.rank <= topN);
+    const issued = [];
+    for (const winner of winners) {
+      const registration: any = await CompetitionRegistration.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
+      if (!registration) continue;
+      let certificate: any = await CompetitionCertificate.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
+      if (!certificate) {
+        try {
+          certificate = await CompetitionCertificate.create({
+            competitionId: competition._id, localUserId: winner.localUserId,
+            certificateId: crypto.randomBytes(12).toString("hex").toUpperCase(),
+            rank: winner.rank, participantName: registration.displayName, participantEmail: registration.userEmail,
+            status: "approved", approvedBy: String(admin.localUserId || admin._id), approvedAt: new Date(),
+          });
+        } catch (error: any) {
+          if (error?.code !== 11000) throw error;
+          certificate = await CompetitionCertificate.findOne({ competitionId: competition._id, localUserId: winner.localUserId }).lean().exec();
+        }
+      }
+      if (certificate) issued.push({ certificateId: certificate.certificateId, rank: certificate.rank, participantName: certificate.participantName, participantEmail: certificate.participantEmail, status: certificate.status, emailStatus: certificate.emailStatus });
+    }
+    return res.json({ success: true, approvedCount: issued.length, certificates: issued, message: "Winner certificates approved. Email delivery will be available after mail delivery is configured." });
+  } catch (error) {
+    console.error("Winner approval error:", error);
+    return res.status(500).json({ success: false, error: "Unable to approve competition winners." });
   }
 });
 
