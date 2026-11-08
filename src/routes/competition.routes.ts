@@ -108,6 +108,43 @@ router.get("/:id/me", async (req, res) => {
   }
 });
 
+router.get("/:id/leaderboard", async (req, res) => {
+  try {
+    const competition: any = await Competition.findById(req.params.id).lean().exec();
+    if (!competition) return res.status(404).json({ success: false, error: "Competition not found." });
+    const user: any = await getCurrentUser(req);
+    const registered = user ? await CompetitionRegistration.exists({ competitionId: competition._id, localUserId: user.localUserId }) : false;
+    if (!registered && user?.role !== "admin") return res.status(403).json({ success: false, error: "Register for this competition to view its leaderboard." });
+    let ranked: any[] = Array.isArray(competition.frozenRanking) && competition.frozenRanking.length
+      ? competition.frozenRanking
+      : [];
+    if (!competition.finalizedAt) {
+      const [registrations, submissions] = await Promise.all([
+        CompetitionRegistration.find({ competitionId: competition._id }).select("localUserId displayName").lean().exec(),
+        CompetitionSubmission.find({ competitionId: competition._id, isCorrect: true }).select("localUserId taskId pointsAwarded firstCorrectAt").lean().exec(),
+      ]);
+      const names = new Map(registrations.map((r: any) => [r.localUserId, r.displayName]));
+      const totals = new Map<string, { name: string; completedTasks: number; points: number; lastSolvedAt: number }>();
+      for (const s of submissions as any[]) {
+        const entry = totals.get(s.localUserId) || { name: names.get(s.localUserId) || "SQLWhale Participant", completedTasks: 0, points: 0, lastSolvedAt: 0 };
+        entry.completedTasks += 1;
+        entry.points += Number(s.pointsAwarded || 0);
+        entry.lastSolvedAt = Math.max(entry.lastSolvedAt, s.firstCorrectAt ? new Date(s.firstCorrectAt).getTime() : 0);
+        totals.set(s.localUserId, entry);
+      }
+      ranked = [...totals.entries()].map(([localUserId, v]) => ({ localUserId, ...v }))
+        .sort((x, y) => y.points - x.points || y.completedTasks - x.completedTasks || x.lastSolvedAt - y.lastSolvedAt || x.name.localeCompare(y.name))
+        .map((x, index) => ({ rank: index + 1, name: x.name, completedTasks: x.completedTasks, points: x.points, lastSolvedAt: x.lastSolvedAt }));
+    }
+    const currentUser = user ? ranked.find((entry: any) => entry.localUserId === user.localUserId) || null : null;
+    const publicRows = ranked.map(({ localUserId: _id, ...row }: any) => row);
+    return res.json({ success: true, competition: { id: String(competition._id), title: competition.title, status: competition.status }, finalized: Boolean(competition.finalizedAt), finalizedAt: competition.finalizedAt || null, top10: publicRows.slice(0, 10), totalRankedUsers: publicRows.length, currentUser: currentUser ? (({ localUserId: _id, ...row }: any) => row)(currentUser) : null });
+  } catch (error) {
+    console.error("Competition leaderboard error:", error);
+    return res.status(500).json({ success: false, error: "Unable to load competition leaderboard." });
+  }
+});
+
 router.get("/:id/workspace/tables", async (req, res) => {
   try {
     const user: any = await getCurrentUser(req);
