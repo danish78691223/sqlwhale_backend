@@ -37,6 +37,9 @@ const MonthlySubscriptionSchema = new Schema({
   recurringConsentAt: { type: Date, required: true },
   activatedAt: { type: Date, default: null },
   lastPaymentAt: { type: Date, default: null },
+  // Set only when Razorpay confirms a captured/charged subscription payment.
+  // A signed authorization alone must not count as a paid billing period.
+  lastChargedAt: { type: Date, default: null },
 }, { timestamps: true, collection: "monthly_subscriptions" });
 
 export const MonthlySubscription = models.SQLWhaleMonthlySubscription || model("SQLWhaleMonthlySubscription", MonthlySubscriptionSchema);
