@@ -124,36 +124,32 @@ router.get("/status", async (req, res) => {
       }
     }
 
-    // Verified activation/payment plus a current billing period is sufficient
-    // to preserve monthly access if Razorpay temporarily reports a non-active status.
-    // An authenticated mandate alone does not qualify.
+    // Access is granted only by a verified paid order, a live recurring
+    // subscription, or an explicitly scheduled end-of-cycle cancellation.
+    // Terminal/failed states must never be overridden by old activation metadata.
     const monthlyPeriodIsCurrent = Boolean(
       monthly?.currentPeriodEnd &&
       new Date(monthly.currentPeriodEnd).getTime() > Date.now(),
     );
+    const monthlyStatus = String(monthly?.status || "").toLowerCase();
+    const monthlyIsTerminal = ["cancelled", "completed", "halted", "expired", "failed", "rejected"].includes(monthlyStatus);
     const monthlyHasVerifiedPayment = Boolean(
-      monthly && (monthly.activatedAt || monthly.lastPaymentAt || monthly.paymentId) &&
+      monthly && (monthly.lastPaymentAt || monthly.paymentId || monthly.activatedAt) &&
       monthlyPeriodIsCurrent,
     );
-    const recurringActive = Boolean(
-      monthly && (monthly.status === "active" || monthlyHasVerifiedPayment),
-    );
-    const monthlyHasVerifiedActivation = Boolean(
-      monthly && (
-        monthly.status === "active" ||
-        monthly.cancelAtCycleEnd ||
-        monthly.activatedAt ||
-        monthly.lastPaymentAt ||
-        monthly.paymentId
-      ),
+    const monthlyActiveNow = Boolean(monthly && monthlyStatus === "active");
+    const monthlyScheduledCancellationAccess = Boolean(
+      monthly && monthlyStatus === "cancelled" && monthly.cancelAtCycleEnd && monthlyHasVerifiedPayment,
     );
     const monthlyAccessUntilEnd = Boolean(
-      monthlyHasVerifiedActivation && monthlyPeriodIsCurrent,
-    );
+      !monthlyIsTerminal && monthlyHasVerifiedPayment &&
+      (monthlyActiveNow || (monthly.cancelAtCycleEnd && monthlyPeriodIsCurrent)),
+    ) || monthlyScheduledCancellationAccess;
+    const recurringActive = monthlyActiveNow || monthlyScheduledCancellationAccess ||
+      Boolean(monthly && !monthlyIsTerminal && monthlyStatus === "active");
     const timedPaymentActive = Boolean(payment?.accessUntil && new Date(payment.accessUntil).getTime() > Date.now());
     const legacyPaid = Boolean(payment && !payment.accessUntil);
-    const paymentDerivedPremium = recurringActive || monthlyAccessUntilEnd || timedPaymentActive || legacyPaid ||
-      (!monthly && !payment && user.currentPlan === "SQLWhale Premium");
+    const paymentDerivedPremium = recurringActive || monthlyAccessUntilEnd || timedPaymentActive || legacyPaid;
     // A deliberate admin override takes precedence until a later successful
     // payment verification clears it. This prevents status refresh from undoing support fixes.
     const currentPlan = user.adminPlanOverride || (paymentDerivedPremium ? "SQLWhale Premium" : "Starter");
@@ -180,7 +176,8 @@ router.get("/status", async (req, res) => {
       cancelAtCycleEnd: Boolean(monthly?.cancelAtCycleEnd),
       currentPeriodEnd: timedPaymentActive ? payment?.accessUntil : monthly?.currentPeriodEnd ?? null,
       durationMonths: timedPaymentActive ? payment?.durationMonths ?? null : null,
-      activationPending: Boolean(monthly && !subscribed && ["created", "authenticated", "pending"].includes(String(monthly.status))),
+      activationPending: Boolean(monthly && !subscribed && ["created", "authenticated", "pending"].includes(monthlyStatus)),
+      accessRevoked: Boolean(monthly && monthlyIsTerminal && !timedPaymentActive && !legacyPaid && !user.adminPlanOverride),
     });
   } catch (error) {
     console.error("Subscription status error:", error);
@@ -613,15 +610,20 @@ router.post("/webhook", async (req, res) => {
     if (event === "subscription.cancelled") saved.cancelAtCycleEnd = false;
     await saved.save();
 
-    const legacyPaid = await SubscriptionPayment.findOne({
+    const paidFixedAccess = await SubscriptionPayment.findOne({
       localUserId: saved.localUserId,
       status: "paid",
       $or: [{ accessUntil: null }, { accessUntil: { $gt: new Date() } }],
     }).select("_id").lean().exec();
-    const accessActive = nextStatus === "active";
+    const accessUntilCycleEnd = Boolean(
+      saved.cancelAtCycleEnd && saved.currentPeriodEnd &&
+      new Date(saved.currentPeriodEnd).getTime() > Date.now() &&
+      (saved.activatedAt || saved.lastPaymentAt || saved.paymentId),
+    );
+    const accessActive = nextStatus === "active" || accessUntilCycleEnd || Boolean(paidFixedAccess);
     await User.updateOne(
       { localUserId: saved.localUserId },
-      { $set: { currentPlan: accessActive || legacyPaid ? "SQLWhale Premium" : "Starter" } },
+      { $set: { currentPlan: accessActive ? "SQLWhale Premium" : "Starter" } },
     ).exec();
 
     res.json({ success: true, received: true });
