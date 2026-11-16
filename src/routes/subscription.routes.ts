@@ -124,6 +124,34 @@ router.get("/status", async (req, res) => {
       }
     }
 
+    // Backfill older subscriptions where the previous release recorded a
+    // payment ID before confirming whether Razorpay actually captured it.
+    // Only a captured payment explicitly linked to this subscription can
+    // preserve access after its terminal cancellation/completion event.
+    if (
+      monthly &&
+      ["cancelled", "completed"].includes(String(monthly.status).toLowerCase()) &&
+      monthly.paymentId &&
+      !monthly.lastChargedAt &&
+      razorpayCredentials()
+    ) {
+      try {
+        const lastPayment: any = await razorpayRequest("/payments/" + encodeURIComponent(monthly.paymentId));
+        if (
+          lastPayment?.id === monthly.paymentId &&
+          lastPayment?.status === "captured" &&
+          lastPayment?.subscription_id === monthly.subscriptionId
+        ) {
+          monthly.lastChargedAt = typeof lastPayment.created_at === "number"
+            ? new Date(lastPayment.created_at * 1000)
+            : new Date();
+          await monthly.save();
+        }
+      } catch (paymentSyncError: any) {
+        console.warn("Unable to verify the last Razorpay subscription charge:", paymentSyncError?.message || paymentSyncError);
+      }
+    }
+
     // A Razorpay authorization or stale activation marker is not proof that a
     // subscription invoice was collected. An active subscription grants
     // access for its current period; after cancellation/completion, access is
