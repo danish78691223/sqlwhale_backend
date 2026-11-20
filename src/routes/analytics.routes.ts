@@ -56,7 +56,7 @@ router.get("/overview", async (req: Request, res: Response) => {
       AnalyticsEvent.aggregate([{ $match: { visitedAt: { $gte: start } } }, { $group: { _id: "$path", views: { $sum: 1 }, visitors: { $addToSet: "$visitorId" } } }, { $project: { path: "$_id", views: 1, visitors: { $size: "$visitors" }, _id: 0 } }, { $sort: { views: -1 } }, { $limit: 10 }]),
       AnalyticsEvent.aggregate([{ $match: { visitedAt: { $gte: start } } }, { $group: { _id: "$device", count: { $sum: 1 } } }, { $project: { device: "$_id", count: 1, _id: 0 } }, { $sort: { count: -1 } }]),
       AnalyticsEvent.aggregate([{ $match: { visitedAt: { $gte: start } } }, { $group: { _id: "$browser", count: { $sum: 1 } } }, { $project: { browser: "$_id", count: 1, _id: 0 } }, { $sort: { count: -1 } }, { $limit: 8 }]),
-      AnalyticsEvent.aggregate([{ $match: { visitedAt: { $gte: liveSince } } }, { $group: { _id: "$visitorId", path: { $last: "$path" }, lastSeen: { $max: "$visitedAt" } } }, { $sort: { lastSeen: -1 } }, { $limit: 50 }]),
+      AnalyticsEvent.aggregate([{ $match: { visitedAt: { $gte: liveSince } } }, { $sort: { visitedAt: 1 } }, { $group: { _id: "$visitorId", path: { $last: "$path" }, lastSeen: { $max: "$visitedAt" } } }, { $sort: { lastSeen: -1 } }, { $limit: 50 }]),
       PushSubscription.aggregate([{ $group: { _id: null, total: { $sum: 1 }, dailyEnabled: { $sum: { $cond: ["$dailyEnabled", 1, 0] } }, announcementsEnabled: { $sum: { $cond: ["$announcementsEnabled", 1, 0] } } } }, { $project: { _id: 0, total: 1, dailyEnabled: 1, announcementsEnabled: 1 } }]),
     ]);
 
